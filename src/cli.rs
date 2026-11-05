@@ -145,6 +145,7 @@ pub struct Creation {
 
 #[derive(Subcommand)]
 pub enum OrgCommand {
+    #[command(visible_alias = "ls")]
     List,
     /// Select by organization ID or exact slug
     Use {
@@ -169,6 +170,7 @@ pub enum OrgCommand {
 
 #[derive(Subcommand)]
 pub enum MemberCommand {
+    #[command(visible_alias = "ls")]
     List {
         #[arg(long, default_value_t = 0)]
         offset: u64,
@@ -192,6 +194,7 @@ pub enum Role {
 
 #[derive(Subcommand)]
 pub enum InvitationCommand {
+    #[command(visible_alias = "ls")]
     List,
     Create {
         email: String,
@@ -216,6 +219,7 @@ pub enum InvitationCommand {
 
 #[derive(Subcommand)]
 pub enum SandboxCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     Get {
         id: Uuid,
@@ -349,6 +353,7 @@ pub enum FileCommand {
 
 #[derive(Subcommand)]
 pub enum VolumeCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     Get {
         id: Uuid,
@@ -384,6 +389,7 @@ pub enum Access {
 
 #[derive(Subcommand)]
 pub enum EndpointCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     Get {
         id: Uuid,
@@ -428,6 +434,7 @@ pub enum Architecture {
 
 #[derive(Subcommand)]
 pub enum ImageCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     Get {
         id: Uuid,
@@ -468,6 +475,7 @@ pub enum ImageCommand {
 
 #[derive(Subcommand)]
 pub enum EnvCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     Get {
         id: Uuid,
@@ -487,6 +495,7 @@ pub enum EnvCommand {
 
 #[derive(Subcommand)]
 pub enum RegistryCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     /// JSON: name, registry (HTTPS origin), username, password, optional tokenOrigin
     Create(Data),
@@ -503,6 +512,7 @@ pub enum RegistryCommand {
 
 #[derive(Subcommand)]
 pub enum ConnectionCommand {
+    #[command(visible_alias = "ls")]
     List(Page),
     Get {
         id: Uuid,
@@ -566,6 +576,7 @@ pub enum ConnectionCommand {
 
 #[derive(Subcommand)]
 pub enum KeyCommand {
+    #[command(visible_alias = "ls")]
     List {
         #[arg(long, default_value_t = 0)]
         offset: u64,
@@ -586,15 +597,21 @@ pub enum KeyCommand {
 
 #[derive(Subcommand)]
 pub enum SessionCommand {
+    #[command(visible_alias = "ls")]
     List,
-    Revoke { id: Uuid },
+    Revoke {
+        id: Uuid,
+    },
     RevokeOthers,
 }
 
 #[derive(Subcommand)]
 pub enum McpCommand {
+    #[command(visible_alias = "ls")]
     List,
-    Revoke { id: Uuid },
+    Revoke {
+        id: Uuid,
+    },
 }
 
 #[derive(Args)]

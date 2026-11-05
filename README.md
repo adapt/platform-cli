@@ -126,6 +126,8 @@ override corresponding fields; `--env` and `--label` merge entries. `--no-expiry
 ## Commands
 
 Run `plat COMMAND --help` for flags and examples of required JSON fields.
+Every `list` subcommand also accepts `ls`, including nested commands such as
+`plat org members ls` and resource commands such as `plat sandbox ls --all`.
 
 | Command | Operations |
 | --- | --- |

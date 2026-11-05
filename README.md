@@ -10,7 +10,7 @@ Install with a current stable Rust toolchain:
 
 ```sh
 cargo install --path . --locked
-plat auth login --api-url https://platform.adaptstaging.com
+plat auth login
 plat whoami
 ```
 
@@ -26,8 +26,9 @@ plat --profile local auth login --api-url http://localhost:3000
 plat --profile local sandbox list
 ```
 
-The API URL defaults to `http://localhost:3000` until you save a profile by logging in.
-Use the API origin, without `/v1`. The verification URL returned by the API may point at
+The API URL defaults to `https://platform.adaptstaging.com`. Saved profiles, `PLAT_API_URL`,
+or `--api-url` can select another origin. Use the API origin, without `/v1`.
+The verification URL returned by the API may point at
 a separate dashboard origin. `--no-browser` prints the link for use on another machine.
 
 ```sh
@@ -209,7 +210,6 @@ on creation/start/stop waits for readiness for up to ten minutes. `sandbox wait`
 Use an organization API key in automation without saving it:
 
 ```sh
-export PLAT_API_URL=https://platform.adaptstaging.com
 export PLAT_TOKEN='your-organization-api-key'
 plat sandbox list
 ```

@@ -8,13 +8,13 @@ use uuid::Uuid;
     name = "plat",
     version,
     about = "Your Platform, from the terminal.",
-    after_help = "Start here: plat auth login --api-url https://platform.adaptstaging.com\nUse --json for scripting. Run any command with --help for details."
+    after_help = "Start here: plat auth login\nUse --json for scripting. Run any command with --help for details."
 )]
 pub struct Cli {
     /// Saved connection profile
     #[arg(long, global = true, env = "PLAT_PROFILE", default_value = "default")]
     pub profile: String,
-    /// Platform API origin (defaults to http://localhost:3000)
+    /// Platform API origin (defaults to https://platform.adaptstaging.com)
     #[arg(long, global = true, env = "PLAT_API_URL")]
     pub api_url: Option<String>,
     /// Organization ID for this request

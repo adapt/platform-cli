@@ -1,1 +1,267 @@
 # Platform CLI
+
+`plat` is the Rust command-line client for [Adapt Platform](https://github.com/adapt/platform).
+It covers the user-facing resource API, account and organization management, browser login,
+execution streams, and file transfers. No Platform backend changes are required.
+
+## Install and sign in
+
+Install with a current stable Rust toolchain:
+
+```sh
+cargo install --path . --locked
+plat auth login --api-url https://platform.adaptstaging.com
+plat whoami
+```
+
+Login displays a short code and opens Platform's approval page in your browser. Sign in,
+verify the code, and approve access. The CLI waits for approval and helps you choose an
+organization. A sole organization is selected automatically. With multiple organizations
+in a noninteractive shell, select one with `--org ID` or run `plat org use ID` afterward.
+
+For local development:
+
+```sh
+plat --profile local auth login --api-url http://localhost:3000
+plat --profile local sandbox list
+```
+
+The API URL defaults to `http://localhost:3000` until you save a profile by logging in.
+Use the API origin, without `/v1`. The verification URL returned by the API may point at
+a separate dashboard origin. `--no-browser` prints the link for use on another machine.
+
+```sh
+plat auth status
+plat org list
+plat org use my-organization-slug
+plat profiles
+plat auth logout
+```
+
+Login uses Platform's existing `adapt-cli` device client and its
+[device authorization protocol](https://www.rfc-editor.org/rfc/rfc8628.html).
+Polling respects the server interval, `slow_down`, expiry, denial, and transient failures.
+The returned credential is a Platform user session; there is no refresh token. Log in again
+if it expires or is revoked. Logout revokes the saved CLI session, leaving your browser
+session signed in. `auth logout --local` removes the local credential when the API is
+unreachable; it does not revoke the remote session.
+
+## Common workflows
+
+Create a sandbox, run a command, and open a shell:
+
+```sh
+plat sandbox create --image ubuntu:24.04 --cpu 2 --memory 2048 --wait
+plat exec SANDBOX_ID -- /bin/sh -lc 'echo hello; uname -a'
+plat exec SANDBOX_ID -it -- /bin/sh
+```
+
+`exec` streams retained stdout and stderr and returns the remote exit code. `--detach`
+returns execution metadata immediately. `--stdin` forwards input through a live WebSocket;
+`--tty` allocates a terminal and implies stdin. Ctrl-] detaches a terminal; Ctrl-C goes to
+the remote terminal. Outside terminal mode, Ctrl-C detaches and exits with 130. Closing
+the CLI does not cancel a remote execution.
+
+```sh
+plat execs get EXEC_ID
+plat execs logs EXEC_ID
+plat execs logs EXEC_ID --cursor 42
+plat execs attach EXEC_ID --after 42
+plat execs cancel EXEC_ID
+```
+
+Retained log streams reconnect with their last consumed cursor. Live attachments report
+the last sequence on disconnect; input is never replayed automatically. SSE cursors and
+WebSocket sequences are different counters. Retained logs are redacted by Platform; live
+WebSocket output is unredacted. Use file transfers for bulk input: the server limits the
+amount of pending WebSocket stdin and can disconnect an attachment if the guest stops reading.
+
+Transfer files (up to 16 MiB; parent directories must exist in the guest):
+
+```sh
+plat files put SANDBOX_ID ./server.py /app/server.py
+plat files get SANDBOX_ID /app/result.bin ./result.bin
+plat files get SANDBOX_ID /app/result.bin - > result.bin
+```
+
+`-` reads stdin or writes stdout. Downloads to a file are written atomically and refuse
+to overwrite an existing file unless `--force` is supplied.
+
+Publish an application listening on `0.0.0.0` inside a sandbox:
+
+```sh
+plat endpoints create "My app" --access authenticated
+plat endpoints bind ENDPOINT_ID SANDBOX_ID --port 3000
+plat endpoints get ENDPOINT_ID
+plat endpoints token ENDPOINT_ID
+plat endpoints unbind ENDPOINT_ID
+```
+
+Endpoint tokens use `X-Adapt-Authorization: Bearer TOKEN` when calling the hosted app.
+They cannot authenticate Platform API requests.
+
+Import an image and use encrypted environment variable sets:
+
+```sh
+plat images import ubuntu:24.04 --name ubuntu --architecture arm64 --wait
+plat env create --data @variables.json
+plat sandbox create --image-id IMAGE_ID --variable-set VARIABLE_SET_ID --wait
+```
+
+`variables.json`:
+
+```json
+{
+  "name": "development",
+  "env": { "API_URL": "https://example.com" }
+}
+```
+
+For advanced sandbox configuration, `--data @sandbox.json` accepts the full Platform
+request schema, including network policies and startup commands. Explicit CLI flags
+override corresponding fields; `--env` and `--label` merge entries. `--no-expiry` sets
+`ttlSeconds` to null. `--run-image` runs the image's ENTRYPOINT/CMD at startup.
+
+## Commands
+
+Run `plat COMMAND --help` for flags and examples of required JSON fields.
+
+| Command | Operations |
+| --- | --- |
+| `auth` | `login`, `status`, `logout` |
+| `whoami` | Effective caller, organization, and permissions |
+| `org` | `list`, `use`, `current`, `create`, `update`, `delete` |
+| `org members` | `list`, `role`, `remove` |
+| `org invitations` | `list`, `create`, `cancel`, `accept`, `reject` |
+| `sandbox` | `list`, `get`, `create`, `start`, `stop`, `delete`, `wait` |
+| `exec` | Execute argv; optional `--detach`, `--stdin`, `--tty` |
+| `execs` | `get`, `cancel`, `logs`, `attach` |
+| `files` | `put`, `get` |
+| `volumes` | `list`, `get`, `create`, `quota`, `delete` |
+| `endpoints` | `list`, `get`, `create`, `access`, `bind`, `unbind`, `token`, `revoke-tokens`, `delete` |
+| `images` | `list`, `get`, `import`, `pull`, `wait`, `delete` |
+| `env` | `list`, `get`, `create`, `update`, `delete` |
+| `registry` | `list`, `create`, `update`, `delete` |
+| `connections` | `list`, `get`, `create`, `update`, `delete`, `refresh`, `grant`, `oauth`, `oauth-complete`, `calls`, `principals`, `search`, `describe`, `call` |
+| `keys` | `list`, `create`, `delete` |
+| `sessions` | `list`, `revoke`, `revoke-others` |
+| `mcp` | `list`, `revoke` for clients connected to Platform |
+| `events` | Organization changes, or personal changes with `--personal` |
+| `health` | Liveness, or database readiness with `--ready` |
+| `profiles` | Saved origins, organizations, and credential presence |
+| `api` | Authenticated request to any path on the configured origin |
+
+Resource operations match `platform` commit `f20ded3`; see [API coverage](docs/api-coverage.md).
+Internal compute administration, OAuth provider internals, and the `/mcp` transport are
+outside the named command surface. `connections` manages upstream MCP services;
+`mcp` manages clients authorized to connect to Platform.
+
+Complex mutations use `--data` with a JSON object, `@file.json`, or `-` for stdin:
+
+```sh
+plat registry create --data @registry-credential.json
+plat env update VARIABLE_SET_ID --data @variable-patch.json
+plat connections create --data '{"name":"Tools","url":"https://tools.example.com/mcp","authType":"oauth"}'
+plat connections oauth CONNECTION_ID
+plat connections search "files"
+plat connections call CONNECTION_ID read_file --arguments '{"path":"/report.txt"}'
+```
+
+Registry updates require all credential fields and their current `version`. Environment
+set updates require `name`, `version`, and `env`; use null values to remove variables.
+Connection updates require `version`, `name`, `enabled`, and `allowedTools`. Platform
+validates resource schemas and permissions and reports conflicts or unsupported operations.
+In particular, ready volume deletion and sandbox volume mounts are currently unsupported.
+
+## Scripting and configuration
+
+Normal commands emit tables on a terminal and JSON when piped. `--json` always requests
+JSON. Progress, login links, and idempotency keys go to stderr. Execution/log commands
+write raw remote output unless `--json` is explicit; then they emit newline-delimited
+JSON events. Files sent to stdout are always raw bytes. `events` emits newline-delimited
+JSON and reports disconnections; reconnecting yields a reset event, so refresh snapshots.
+
+```sh
+plat sandbox list --all --json
+plat sandbox list --limit 50 --cursor CURSOR
+plat api GET /v1/whoami
+plat api GET /openapi.json
+plat api POST /v1/auth/update-user --data '{"name":"New name"}'
+```
+
+Resource lists support cursor pagination with `--all`. Gateway connections and call
+history have a server-defined page size; omit `--limit` there. Member and API-key lists
+use `--offset` in pages of 50; tool search uses its returned `nextOffset`.
+
+Creation of sandboxes, volumes, endpoints, images, image pulls, and executions requires
+an idempotency UUID. The CLI generates and prints one before sending the request. To
+retry after a lost response, reuse that key **and the same input**:
+
+```sh
+plat sandbox create --image ubuntu:24.04 --idempotency-key YOUR_PREVIOUS_UUID
+```
+
+Mutations are not automatically retried. Asynchronous deletions return `{"status":202}`;
+confirmed empty responses return their HTTP status, such as `{"status":204}`. `--wait`
+on creation/start/stop waits for readiness for up to ten minutes. `sandbox wait` and
+`images wait` accept `--wait-timeout SECONDS`.
+
+Use an organization API key in automation without saving it:
+
+```sh
+export PLAT_API_URL=https://platform.adaptstaging.com
+export PLAT_TOKEN='your-organization-api-key'
+plat sandbox list
+```
+
+Or save a key using stdin:
+
+```sh
+plat auth login --token-stdin < /path/to/private/key-file
+```
+
+An imported key is validated against `/v1/whoami` and its organization is saved. Logging
+out removes a saved API key locally; revoke it explicitly with `keys delete` when needed.
+`PLAT_TOKEN` overrides saved credentials for requests, but logout always targets the
+saved credential and never revokes an environment override.
+
+| Setting | Flag | Environment variable |
+| --- | --- | --- |
+| API origin | `--api-url` | `PLAT_API_URL` |
+| Profile (default: `default`) | `--profile` | `PLAT_PROFILE` |
+| Organization for this request | `--org` | `PLAT_ORG_ID` |
+| Bearer token | Use stdin to import | `PLAT_TOKEN` |
+| Configuration directory | `--config-dir` | `PLAT_CONFIG_DIR` |
+| HTTP timeout (default: 60 seconds) | `--timeout` | — |
+
+Flags override environment variables; both override the selected profile. Configuration
+lives at `$XDG_CONFIG_HOME/plat/config.json`, otherwise `~/.config/plat/config.json`
+(on Windows, `%APPDATA%/plat/config.json`). Credentials are stored in this local JSON
+file, **not encrypted or stored in an OS keychain**. On Unix, the CLI creates directories
+with mode 0700 and files with mode 0600 and refuses to read a group/world-accessible
+configuration file. Do not commit or share this file. Use `PLAT_TOKEN` for ephemeral CI
+credentials. Profiles and auth status never display saved tokens.
+
+Saved credentials and organization defaults are scoped to their API origin. Overriding
+the origin does not reuse them. HTTP redirects are never followed, and HTTPS is required
+except for loopback development servers. `api` accepts paths, not arbitrary target URLs.
+
+Exit codes: 0 for success, 1 for CLI/API failures, 2 for invalid CLI arguments, 124 for a
+remote timeout, 130 for interruption. Completed commands preserve exit codes 0–255;
+unrepresentable or unknown results return 1. Live signal exits return 128 plus the signal.
+
+## Development
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked --release
+```
+
+Tests start local HTTP/WebSocket servers and temporary configuration directories; they
+do not need Platform, PostgreSQL, real accounts, or credentials. The integration suite
+checks auth polling and revocation, credential isolation, request contracts, pagination,
+idempotency, binary transfers, SSE reconnection, and WebSocket input/output. CI runs on
+Linux, macOS, and Windows. A real browser sign-in still requires a running Platform
+deployment with its device-auth migration and identity providers configured.

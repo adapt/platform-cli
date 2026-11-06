@@ -3,7 +3,7 @@ use crate::{
     auth,
     cli::*,
     config::{self, Config, Credential, CredentialKind},
-    input, output, stream,
+    input, output, shell, stream,
 };
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
@@ -127,6 +127,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
             OrgCommand::Members(command) => members(&api, command).await?,
             OrgCommand::Invitations(command) => invitations(&api, command).await?,
         },
+        Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(&api, args, cli.json).await,
         Command::Sandbox(command) => sandbox(&api, command).await?,
         Command::Exec(args) => return execute(&api, args, cli.json).await,
         Command::Execs(command) => match command {
@@ -236,57 +237,63 @@ async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
             wait_timeout,
         } => wait_for(api, "sandboxes", id, &status, wait_timeout).await,
         SandboxCommand::Create(args) => {
-            let mut body = input::object(args.data.as_deref())?;
-            if args.image.is_some() {
-                body.as_object_mut().unwrap().remove("imageId");
-            }
-            if args.image_id.is_some() {
-                body.as_object_mut().unwrap().remove("image");
-            }
-            input::put(&mut body, "image", args.image)?;
-            input::put(&mut body, "imageId", args.image_id.map(|id| id.to_string()))?;
-            input::put(&mut body, "cpu", args.cpu)?;
-            input::put(&mut body, "memoryMiB", args.memory)?;
-            input::put(&mut body, "diskMiB", args.disk)?;
-            input::put(&mut body, "ttlSeconds", args.ttl)?;
-            if args.no_expiry {
-                body["ttlSeconds"] = Value::Null;
-            }
-            for (field, pairs) in [("env", &args.env), ("labels", &args.labels)] {
-                if !pairs.is_empty() {
-                    if body[field].is_null() {
-                        body[field] = json!({});
-                    }
-                    let map = body[field]
-                        .as_object_mut()
-                        .context("env and labels must be JSON objects")?;
-                    for (k, v) in pairs {
-                        map.insert(k.clone(), json!(v));
-                    }
-                }
-            }
-            if !args.variable_set.is_empty() {
-                body["variableSetIds"] = json!(
-                    args.variable_set
-                        .iter()
-                        .map(Uuid::to_string)
-                        .collect::<Vec<_>>()
-                );
-            }
-            if args.run_image {
-                body["startup"] = json!({"mode":"image"});
-            }
-            let result = create(api, "/v1/sandboxes", body, args.creation).await?;
-            if args.wait {
+            let wait = args.wait;
+            let result = create_sandbox(api, args).await?;
+            if wait {
                 wait_for(api, "sandboxes", resource_id(&result)?, "running", 600).await
             } else {
                 Ok(result)
             }
         }
+        SandboxCommand::Sh(_) => unreachable!("Interactive shell is dispatched separately"),
     }
 }
 
-fn resource_id(value: &Value) -> Result<Uuid> {
+pub(crate) async fn create_sandbox(api: &Api, args: SandboxCreate) -> Result<Value> {
+    let mut body = input::object(args.data.as_deref())?;
+    if args.image.is_some() {
+        body.as_object_mut().unwrap().remove("imageId");
+    }
+    if args.image_id.is_some() {
+        body.as_object_mut().unwrap().remove("image");
+    }
+    input::put(&mut body, "image", args.image)?;
+    input::put(&mut body, "imageId", args.image_id.map(|id| id.to_string()))?;
+    input::put(&mut body, "cpu", args.cpu)?;
+    input::put(&mut body, "memoryMiB", args.memory)?;
+    input::put(&mut body, "diskMiB", args.disk)?;
+    input::put(&mut body, "ttlSeconds", args.ttl)?;
+    if args.no_expiry {
+        body["ttlSeconds"] = Value::Null;
+    }
+    for (field, pairs) in [("env", &args.env), ("labels", &args.labels)] {
+        if !pairs.is_empty() {
+            if body[field].is_null() {
+                body[field] = json!({});
+            }
+            let map = body[field]
+                .as_object_mut()
+                .context("env and labels must be JSON objects")?;
+            for (k, v) in pairs {
+                map.insert(k.clone(), json!(v));
+            }
+        }
+    }
+    if !args.variable_set.is_empty() {
+        body["variableSetIds"] = json!(
+            args.variable_set
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>()
+        );
+    }
+    if args.run_image {
+        body["startup"] = json!({"mode":"image"});
+    }
+    create(api, "/v1/sandboxes", body, args.creation).await
+}
+
+pub(crate) fn resource_id(value: &Value) -> Result<Uuid> {
     value["id"]
         .as_str()
         .context("Response is missing a resource ID")?
@@ -294,7 +301,7 @@ fn resource_id(value: &Value) -> Result<Uuid> {
         .context("Invalid response resource ID")
 }
 
-async fn wait_for(
+pub(crate) async fn wait_for(
     api: &Api,
     resource: &str,
     id: Uuid,
@@ -330,7 +337,7 @@ async fn wait_for(
     .with_context(|| format!("Timed out waiting for {id}; the operation continues on Platform"))?
 }
 
-async fn execute(api: &Api, args: ExecArgs, json_output: bool) -> Result<u8> {
+pub(crate) async fn execute(api: &Api, args: ExecArgs, json_output: bool) -> Result<u8> {
     if args.tty && json_output {
         bail!("--tty cannot be combined with --json");
     }
@@ -359,7 +366,7 @@ async fn execute(api: &Api, args: ExecArgs, json_output: bool) -> Result<u8> {
     let id = resource_id(&result)?;
     eprintln!("Execution: {id}");
     if args.stdin || args.tty {
-        stream::attach(api, id, 0, true, args.tty, json_output).await
+        stream::attach_new(api, id, args.tty, json_output).await
     } else {
         stream::logs(api, id, 0, json_output).await
     }

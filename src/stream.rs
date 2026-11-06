@@ -333,6 +333,38 @@ pub async fn attach(
     }
 }
 
+/// Attach to a newly created execution. The create response can precede node
+/// startup, and a short command can finish before a writable socket is opened.
+pub async fn attach_new(api: &Api, id: Uuid, tty: bool, json_output: bool) -> Result<u8> {
+    let deadline = tokio::time::Instant::now() + api.timeout;
+    loop {
+        let error = match attach(api, id, 0, true, tty, json_output).await {
+            Ok(code) => return Ok(code),
+            Err(error) => error,
+        };
+        // Only a failed HTTP handshake is safe to retry: no stdin or live
+        // output has crossed this connection. Never reconnect an open stream.
+        let retryable = matches!(
+            error.downcast_ref::<tokio_tungstenite::tungstenite::Error>(),
+            Some(tokio_tungstenite::tungstenite::Error::Http(response))
+                if response.status() == 502
+        );
+        if !retryable {
+            return Err(error);
+        }
+        let snapshot = api.get(&format!("/v1/execs/{id}")).await?;
+        match snapshot["status"].as_str() {
+            Some("exited" | "failed" | "timed_out" | "cancelled" | "interrupted") => {
+                return logs(api, id, 0, json_output).await;
+            }
+            Some("starting" | "running") if tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            _ => return Err(error),
+        }
+    }
+}
+
 fn live_exit_code(exit: &Value) -> u8 {
     if exit["timed_out"] == true {
         return 124;

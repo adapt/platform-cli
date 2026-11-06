@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod input;
 mod output;
+mod shell;
 mod stream;
 
 use clap::Parser;
@@ -26,11 +27,19 @@ fn main() -> ExitCode {
 }
 
 async fn run(cli: Cli) -> ExitCode {
-    let result = tokio::select! {
-        result = commands::run(cli) => result,
-        _ = tokio::signal::ctrl_c() => {
-            eprintln!("\nCancelled. Remote executions continue; use `plat execs cancel ID` to stop one.");
-            return ExitCode::from(130);
+    let result = if matches!(
+        &cli.command,
+        cli::Command::Sandbox(cli::SandboxCommand::Sh(_))
+    ) {
+        // This command owns its sandbox and must finish cleanup before returning.
+        commands::run(cli).await
+    } else {
+        tokio::select! {
+            result = commands::run(cli) => result,
+            _ = tokio::signal::ctrl_c() => {
+                eprintln!("\nCancelled. Remote executions continue; use `plat execs cancel ID` to stop one.");
+                return ExitCode::from(130);
+            }
         }
     };
     match result {

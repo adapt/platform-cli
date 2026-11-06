@@ -49,6 +49,37 @@ unreachable; it does not revoke the remote session.
 
 ## Common workflows
 
+Open a login shell in a temporary sandbox:
+
+```sh
+plat sandbox sh
+plat sandbox sh --image ubuntu:24.04 --cpu 2 --memory 2048 --env EDITOR=vim
+plat sandbox sh --image-id IMAGE_ID --variable-set VARIABLE_SET_ID
+```
+
+Run a one-off command in a temporary sandbox instead:
+
+```sh
+plat sandbox sh -- uname -a
+plat sandbox sh --image python:3.13 -- python -c 'print("hello")'
+printf 'hello\n' | plat sandbox sh -- cat
+plat sandbox sh -- /bin/sh -lc 'echo hello; uname -a'
+```
+
+Arguments after `--` are passed literally as the command's argv. Use `/bin/sh -lc`
+for shell expressions. Commands forward stdin, stream stdout/stderr, and return the
+remote exit code; they also work without a terminal and support `--json` events.
+
+`sandbox sh` accepts every `sandbox create` option, including `--data`, and always
+waits for the sandbox to run (`--wait` is optional). Without a command, it requires
+a terminal and opens an interactive login shell using the guest's `$SHELL` or passwd
+entry, falling back to Bash or `/bin/sh`. It deletes the sandbox and its disk when you exit,
+press Ctrl-], or the connection fails, and returns the shell's exit code. Ctrl-C
+goes to the remote terminal; interrupting startup also cleans up the sandbox.
+On Unix, SIGTERM and SIGHUP trigger cleanup too. Cleanup errors report the sandbox
+ID and a retry command. Automatic expiry still follows the create options (one hour
+by default); shells have the API's maximum execution timeout of 24 hours.
+
 Create a sandbox, run a command, and open a shell:
 
 ```sh

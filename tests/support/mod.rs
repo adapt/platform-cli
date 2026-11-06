@@ -54,6 +54,57 @@ impl Reply {
 }
 
 pub type Handler = Box<dyn FnOnce(&Request) -> Reply + Send>;
+pub type Exchange = Box<dyn FnOnce(TcpStream) -> Request + Send>;
+
+pub fn http(step: Handler) -> Exchange {
+    Box::new(move |mut socket| {
+        let request = read_request(&mut socket);
+        let reply = step(&request);
+        write!(
+            socket,
+            "HTTP/1.1 {} Test\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
+            reply.status,
+            reply.content_type,
+            reply.body.len()
+        )
+        .unwrap();
+        for (key, value) in reply.headers {
+            write!(socket, "{key}: {value}\r\n").unwrap();
+        }
+        write!(socket, "\r\n").unwrap();
+        socket.write_all(&reply.body).unwrap();
+        request
+    })
+}
+
+#[allow(clippy::result_large_err)] // Tungstenite's handshake callback error type.
+pub fn websocket(
+    session: impl FnOnce(tokio_tungstenite::tungstenite::WebSocket<TcpStream>) + Send + 'static,
+) -> Exchange {
+    Box::new(move |socket| {
+        let mut received = None;
+        let ws = tokio_tungstenite::tungstenite::accept_hdr(
+            socket,
+            |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+                assert_eq!(request.uri().path(), format!("/v1/execs/{KEY}/stream"));
+                assert_eq!(request.uri().query(), Some("after=0&readOnly=false"));
+                assert_eq!(request.headers()["authorization"], "Bearer test-token");
+                assert_eq!(request.headers()["x-organization-id"], ORG);
+                received = Some(Request {
+                    method: "GET".into(),
+                    target: request.uri().to_string(),
+                    headers: HashMap::new(),
+                    body: vec![],
+                    at: Instant::now(),
+                });
+                Ok(response)
+            },
+        )
+        .unwrap();
+        session(ws);
+        received.unwrap()
+    })
+}
 
 pub struct Server {
     pub url: String,
@@ -62,6 +113,10 @@ pub struct Server {
 
 impl Server {
     pub fn start(steps: Vec<Handler>) -> Self {
+        Self::script(steps.into_iter().map(http).collect())
+    }
+
+    pub fn script(steps: Vec<Exchange>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -69,7 +124,7 @@ impl Server {
             let mut requests = vec![];
             for step in steps {
                 let start = Instant::now();
-                let mut socket = loop {
+                let socket = loop {
                     match listener.accept() {
                         Ok((socket, _)) => break socket,
                         Err(e)
@@ -86,15 +141,7 @@ impl Server {
                 socket
                     .set_read_timeout(Some(Duration::from_secs(10)))
                     .unwrap();
-                let request = read_request(&mut socket);
-                let reply = step(&request);
-                write!(socket, "HTTP/1.1 {} Test\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n", reply.status, reply.content_type, reply.body.len()).unwrap();
-                for (key, value) in reply.headers {
-                    write!(socket, "{key}: {value}\r\n").unwrap();
-                }
-                write!(socket, "\r\n").unwrap();
-                socket.write_all(&reply.body).unwrap();
-                requests.push(request);
+                requests.push(step(socket));
             }
             requests
         });

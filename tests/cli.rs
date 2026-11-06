@@ -3,6 +3,8 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use support::*;
 
+mod sandbox_sh;
+
 #[test]
 fn help_and_argument_validation() {
     let dir = tempfile::tempdir().unwrap();

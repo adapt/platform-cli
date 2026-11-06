@@ -225,6 +225,11 @@ pub enum SandboxCommand {
         id: Uuid,
     },
     Create(SandboxCreate),
+    /// Run a login shell or command in a temporary sandbox, then delete it
+    #[command(
+        after_help = "Accepts all sandbox create options. Always waits for the sandbox to run.\nWithout COMMAND, opens an interactive login shell (requires a terminal).\nWith COMMAND, forwards stdin and streams output. Returns the remote exit code.\nThe sandbox is deleted when the shell or command exits."
+    )]
+    Sh(SandboxShell),
     Start {
         id: Uuid,
         #[arg(long)]
@@ -246,6 +251,15 @@ pub enum SandboxCommand {
         #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
         wait_timeout: u64,
     },
+}
+
+#[derive(Args)]
+pub struct SandboxShell {
+    #[command(flatten)]
+    pub create: SandboxCreate,
+    /// Command and literal arguments to run instead of an interactive login shell
+    #[arg(last = true, num_args = 1.., value_name = "COMMAND")]
+    pub argv: Vec<String>,
 }
 
 #[derive(Args)]

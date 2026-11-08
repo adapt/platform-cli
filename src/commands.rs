@@ -3,7 +3,7 @@ use crate::{
     auth,
     cli::*,
     config::{self, Config, Credential, CredentialKind},
-    input, output, shell, stream,
+    input, output, shell, skill, stream,
 };
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
@@ -17,6 +17,10 @@ use std::{
 use uuid::Uuid;
 
 pub async fn run(cli: Cli) -> Result<u8> {
+    if let Command::Skill(command) = &cli.command {
+        skill::run(command, cli.json)?;
+        return Ok(0);
+    }
     let dir = config::directory(cli.config_dir.as_deref())?;
     let mut config = Config::load(&dir)?;
     let saved = config
@@ -53,6 +57,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         Duration::from_secs(cli.timeout),
     )?;
     let result = match cli.command {
+        Command::Skill(_) => unreachable!("Skill commands run before API configuration"),
         Command::Auth(AuthCommand::Login { no_browser, token_stdin }) => {
             let anonymous = Api::new(origin.clone(), None, None, api.timeout)?;
             let credential = if token_stdin {

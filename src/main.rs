@@ -6,6 +6,7 @@ mod config;
 mod input;
 mod output;
 mod shell;
+mod skill;
 mod stream;
 
 use clap::Parser;

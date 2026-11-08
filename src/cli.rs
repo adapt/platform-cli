@@ -38,6 +38,9 @@ pub enum Command {
     /// Browser sign-in, sign-out, and session status
     #[command(subcommand)]
     Auth(AuthCommand),
+    /// Install or remove the bundled guide for coding agents (works offline)
+    #[command(subcommand)]
+    Skill(SkillCommand),
     /// Show your effective identity and organization permissions
     Whoami,
     /// Manage organizations and choose a default
@@ -95,6 +98,34 @@ pub enum Command {
     },
     /// Make an authenticated request to a path on this Platform origin
     Api(ApiArgs),
+}
+
+#[derive(Subcommand)]
+pub enum SkillCommand {
+    /// Print the bundled skill as Markdown
+    Show,
+    /// Install or update the guide for coding agents
+    Install {
+        /// Agent to configure; omitted installs for all supported agents
+        #[arg(value_enum, default_value = "all")]
+        target: SkillTarget,
+    },
+    /// Remove the guide, preserving other files in its directory
+    Uninstall {
+        /// Agent to configure; shared directories affect every agent using them
+        #[arg(value_enum, default_value = "all")]
+        target: SkillTarget,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum SkillTarget {
+    Codex,
+    #[value(alias = "claude-code")]
+    Claude,
+    Pi,
+    Opencode,
+    All,
 }
 
 #[derive(Subcommand)]

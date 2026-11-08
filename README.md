@@ -47,6 +47,42 @@ if it expires or is revoked. Logout revokes the saved CLI session, leaving your 
 session signed in. `auth logout --local` removes the local credential when the API is
 unreachable; it does not revoke the remote session.
 
+## Coding agent skill
+
+Install the bundled Adapt guide for Codex, Claude Code, Pi, and OpenCode:
+
+```sh
+adapt skill install
+adapt skill install codex
+adapt skill show
+adapt skill uninstall codex
+adapt skill uninstall
+```
+
+`install` and `uninstall` accept `codex`, `claude` (also `claude-code`), `pi`,
+`opencode`, or `all` (the default). They work offline without login or API
+configuration. `show` prints the bundled `SKILL.md` as Markdown, even with `--json`.
+
+| Agent | Skill path |
+| --- | --- |
+| Codex | `~/.agents/skills/adapt/SKILL.md`, or `$CODEX_HOME/skills/adapt/SKILL.md` when set |
+| Claude Code | `~/.claude/skills/adapt/SKILL.md`, or `$CLAUDE_CONFIG_DIR/skills/adapt/SKILL.md` when set |
+| Pi and OpenCode | `~/.agents/skills/adapt/SKILL.md` |
+
+Overrides must be absolute paths; empty overrides use the default. Codex, Pi,
+and OpenCode share the default installation, so uninstalling for one also
+removes the guide for the others using that directory. Directory symlinks are
+supported; symlinks at `SKILL.md` are refused.
+
+Installing again updates the guide to match the CLI, replacing any edits to
+`SKILL.md`; an unchanged guide is left untouched. Uninstall removes only
+`SKILL.md`, preserving the directory, its lock file, and any neighboring files.
+Repeated uninstalls succeed. Piped output and `--json` report `installed` or
+`uninstalled` entries with `agent`, `path`, and `changed` fields.
+
+Use `$adapt` in Codex, `/adapt` in Claude Code, `/skill:adapt` in Pi, or ask
+OpenCode to use the adapt skill. Restart the agent if the change does not appear.
+
 ## Common workflows
 
 Open a login shell in a temporary sandbox:

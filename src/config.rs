@@ -56,30 +56,16 @@ pub fn directory(explicit: Option<&Path>) -> Result<PathBuf> {
         return Ok(path.to_owned());
     }
     if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
-        return default_directory(Path::new(&path));
+        return Ok(PathBuf::from(path).join("adapt"));
     }
     #[cfg(windows)]
     if let Some(path) = std::env::var_os("APPDATA") {
-        return default_directory(Path::new(&path));
+        return Ok(PathBuf::from(path).join("adapt"));
     }
-    default_directory(
-        &PathBuf::from(
-            std::env::var_os("HOME")
-                .context("Set ADAPT_CONFIG_DIR; no home directory is available")?,
-        )
-        .join(".config"),
+    Ok(PathBuf::from(
+        std::env::var_os("HOME").context("Set ADAPT_CONFIG_DIR; no home directory is available")?,
     )
-}
-
-fn default_directory(root: &Path) -> Result<PathBuf> {
-    let current = root.join("adapt");
-    let legacy = root.join("plat");
-    // Keep existing sessions in one file, including subsequent login/logout
-    // writes. An explicit directory or an existing adapt config takes priority.
-    if !current.join("config.json").try_exists()? && legacy.join("config.json").try_exists()? {
-        return Ok(legacy);
-    }
-    Ok(current)
+    .join(".config/adapt"))
 }
 
 impl Config {
@@ -162,39 +148,4 @@ pub fn validate_http_url(url: &Url) -> Result<()> {
         bail!("HTTPS is required except for a loopback development server");
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_directory_preserves_existing_sessions_and_prefers_adapt() {
-        let root = tempfile::tempdir().unwrap();
-        let current = root.path().join("adapt");
-        let legacy = root.path().join("plat");
-        assert_eq!(default_directory(root.path()).unwrap(), current);
-
-        let mut saved = Config::default();
-        saved.profiles.insert("existing".into(), Profile::default());
-        saved.save(&legacy).unwrap();
-        let selected = default_directory(root.path()).unwrap();
-        assert_eq!(selected, legacy);
-        assert!(
-            Config::load(&selected)
-                .unwrap()
-                .profiles
-                .contains_key("existing")
-        );
-
-        // New login/logout writes go to the same file instead of leaving a
-        // second stale copy of the saved credentials behind.
-        Config::default().save(&selected).unwrap();
-        assert!(Config::load(&legacy).unwrap().profiles.is_empty());
-        assert!(!current.exists());
-
-        Config::default().save(&current).unwrap();
-        assert_eq!(default_directory(root.path()).unwrap(), current);
-        assert_eq!(directory(Some(&legacy)).unwrap(), legacy);
-    }
 }

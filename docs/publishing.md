@@ -37,9 +37,9 @@ and `adapt/platform-cli/.github/workflows/ci.yml@refs/heads/main`.
 
 There is no service account key. PR and branch builds cannot publish. Source,
 debug symbols, and credentials are never included in the staged release files.
-Platform supplies the same bucket name through its deployment configuration
-when building `/install.sh`.
-The served installer necessarily contains the public download location.
+Platform supplies the same bucket name through its runtime deployment
+configuration and proxies published files at `/cli/`. Its static `/install.sh`
+takes the Platform origin as an argument and downloads through that proxy.
 
 ## Public download layout
 

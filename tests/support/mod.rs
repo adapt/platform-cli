@@ -156,7 +156,7 @@ fn read_request(socket: &mut TcpStream) -> Request {
     let mut bytes = Vec::new();
     let mut chunk = [0; 4096];
     let boundary = loop {
-        let n = socket.read(&mut chunk).unwrap();
+        let n = read_chunk(socket, &mut chunk);
         assert!(n > 0);
         bytes.extend_from_slice(&chunk[..n]);
         if let Some(index) = bytes.windows(4).position(|s| s == b"\r\n\r\n") {
@@ -178,7 +178,7 @@ fn read_request(socket: &mut TcpStream) -> Request {
         .map(|s| s.parse().unwrap())
         .unwrap_or(0);
     while bytes.len() < boundary + length {
-        let n = socket.read(&mut chunk).unwrap();
+        let n = read_chunk(socket, &mut chunk);
         assert!(n > 0);
         bytes.extend_from_slice(&chunk[..n]);
     }
@@ -188,6 +188,18 @@ fn read_request(socket: &mut TcpStream) -> Request {
         headers,
         body: bytes[boundary..].to_vec(),
         at: Instant::now(),
+    }
+}
+
+fn read_chunk(socket: &mut TcpStream, buffer: &mut [u8]) -> usize {
+    loop {
+        match socket.read(buffer) {
+            Ok(n) => return n,
+            // Other tests spawn and signal subprocesses while the mock server
+            // reads requests. A signal can interrupt a blocking read on Linux.
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => panic!("Cannot read mock request: {error}"),
+        }
     }
 }
 

@@ -1,3 +1,6 @@
 /target/
+/dist/
+__pycache__/
+gha-creds-*.json
 /.tmp/
 .DS_Store

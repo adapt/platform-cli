@@ -39,7 +39,7 @@ There is no service account key. PR and branch builds cannot publish. Source,
 debug symbols, and credentials are never included in the staged release files.
 Platform supplies the same bucket name through its runtime deployment
 configuration and proxies published files at `/cli/`. Its static `/install.sh`
-downloads through that proxy on the CLI's default API origin, with no URL argument.
+downloads through that proxy on the CLI's default API origin.
 
 ## Public download layout
 

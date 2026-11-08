@@ -1,7 +1,7 @@
 # API coverage
 
 Based on the resource OpenAPI document from `../platform` at `f20ded3`, plus its dashboard
-auth integrations. Every resource operation has a named command. `plat api METHOD PATH`
+auth integrations. Every resource operation has a named command. `adapt api METHOD PATH`
 also exposes same-origin JSON requests for less common account operations.
 
 `{id}` denotes the corresponding resource ID. Writes requiring an idempotency key receive

@@ -6,7 +6,7 @@ description = "The user-facing CLI for Adapt Platform"
 publish = false
 
 [[bin]]
-name = "plat"
+name = "adapt"
 path = "src/main.rs"
 
 [dependencies]

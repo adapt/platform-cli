@@ -1,6 +1,6 @@
 # Platform CLI
 
-`plat` is the Rust command-line client for [Adapt Platform](https://github.com/adapt/platform).
+`adapt` is the Rust command-line client for [Adapt Platform](https://github.com/adapt/platform).
 It covers the user-facing resource API, account and organization management, browser login,
 execution streams, and file transfers. No Platform backend changes are required.
 
@@ -10,33 +10,33 @@ Install with a current stable Rust toolchain:
 
 ```sh
 cargo install --path . --locked
-plat auth login
-plat whoami
+adapt auth login
+adapt whoami
 ```
 
 Login displays a short code and opens Platform's approval page in your browser. Sign in,
 verify the code, and approve access. The CLI waits for approval and helps you choose an
 organization. A sole organization is selected automatically. With multiple organizations
-in a noninteractive shell, select one with `--org ID` or run `plat org use ID` afterward.
+in a noninteractive shell, select one with `--org ID` or run `adapt org use ID` afterward.
 
 For local development:
 
 ```sh
-plat --profile local auth login --api-url http://localhost:3000
-plat --profile local sandbox list
+adapt --profile local auth login --api-url http://localhost:3000
+adapt --profile local sandbox list
 ```
 
-The API URL defaults to `https://platform.adaptstaging.com`. Saved profiles, `PLAT_API_URL`,
+The API URL defaults to `https://platform.adaptstaging.com`. Saved profiles, `ADAPT_API_URL`,
 or `--api-url` can select another origin. Use the API origin, without `/v1`.
 The verification URL returned by the API may point at
 a separate dashboard origin. `--no-browser` prints the link for use on another machine.
 
 ```sh
-plat auth status
-plat org list
-plat org use my-organization-slug
-plat profiles
-plat auth logout
+adapt auth status
+adapt org list
+adapt org use my-organization-slug
+adapt profiles
+adapt auth logout
 ```
 
 Login uses Platform's existing `adapt-cli` device client and its
@@ -52,18 +52,18 @@ unreachable; it does not revoke the remote session.
 Open a login shell in a temporary sandbox:
 
 ```sh
-plat sandbox sh
-plat sandbox sh --image ubuntu:24.04 --cpu 2 --memory 2048 --env EDITOR=vim
-plat sandbox sh --image-id IMAGE_ID --variable-set VARIABLE_SET_ID
+adapt sandbox sh
+adapt sandbox sh --image ubuntu:24.04 --cpu 2 --memory 2048 --env EDITOR=vim
+adapt sandbox sh --image-id IMAGE_ID --variable-set VARIABLE_SET_ID
 ```
 
 Run a one-off command in a temporary sandbox instead:
 
 ```sh
-plat sandbox sh -- uname -a
-plat sandbox sh --image python:3.13 -- python -c 'print("hello")'
-printf 'hello\n' | plat sandbox sh -- cat
-plat sandbox sh -- /bin/sh -lc 'echo hello; uname -a'
+adapt sandbox sh -- uname -a
+adapt sandbox sh --image python:3.13 -- python -c 'print("hello")'
+printf 'hello\n' | adapt sandbox sh -- cat
+adapt sandbox sh -- /bin/sh -lc 'echo hello; uname -a'
 ```
 
 Arguments after `--` are passed literally as the command's argv. Use `/bin/sh -lc`
@@ -83,9 +83,9 @@ by default); shells have the API's maximum execution timeout of 24 hours.
 Create a sandbox, run a command, and open a shell:
 
 ```sh
-plat sandbox create --image ubuntu:24.04 --cpu 2 --memory 2048 --wait
-plat exec SANDBOX_ID -- /bin/sh -lc 'echo hello; uname -a'
-plat exec SANDBOX_ID -it -- /bin/sh
+adapt sandbox create --image ubuntu:24.04 --cpu 2 --memory 2048 --wait
+adapt exec SANDBOX_ID -- /bin/sh -lc 'echo hello; uname -a'
+adapt exec SANDBOX_ID -it -- /bin/sh
 ```
 
 `exec` streams retained stdout and stderr and returns the remote exit code. `--detach`
@@ -95,11 +95,11 @@ the remote terminal. Outside terminal mode, Ctrl-C detaches and exits with 130. 
 the CLI does not cancel a remote execution.
 
 ```sh
-plat execs get EXEC_ID
-plat execs logs EXEC_ID
-plat execs logs EXEC_ID --cursor 42
-plat execs attach EXEC_ID --after 42
-plat execs cancel EXEC_ID
+adapt execs get EXEC_ID
+adapt execs logs EXEC_ID
+adapt execs logs EXEC_ID --cursor 42
+adapt execs attach EXEC_ID --after 42
+adapt execs cancel EXEC_ID
 ```
 
 Retained log streams reconnect with their last consumed cursor. Live attachments report
@@ -111,9 +111,9 @@ amount of pending WebSocket stdin and can disconnect an attachment if the guest 
 Transfer files (up to 16 MiB; parent directories must exist in the guest):
 
 ```sh
-plat files put SANDBOX_ID ./server.py /app/server.py
-plat files get SANDBOX_ID /app/result.bin ./result.bin
-plat files get SANDBOX_ID /app/result.bin - > result.bin
+adapt files put SANDBOX_ID ./server.py /app/server.py
+adapt files get SANDBOX_ID /app/result.bin ./result.bin
+adapt files get SANDBOX_ID /app/result.bin - > result.bin
 ```
 
 `-` reads stdin or writes stdout. Downloads to a file are written atomically and refuse
@@ -122,11 +122,11 @@ to overwrite an existing file unless `--force` is supplied.
 Publish an application listening on `0.0.0.0` inside a sandbox:
 
 ```sh
-plat endpoints create "My app" --access authenticated
-plat endpoints bind ENDPOINT_ID SANDBOX_ID --port 3000
-plat endpoints get ENDPOINT_ID
-plat endpoints token ENDPOINT_ID
-plat endpoints unbind ENDPOINT_ID
+adapt endpoints create "My app" --access authenticated
+adapt endpoints bind ENDPOINT_ID SANDBOX_ID --port 3000
+adapt endpoints get ENDPOINT_ID
+adapt endpoints token ENDPOINT_ID
+adapt endpoints unbind ENDPOINT_ID
 ```
 
 Endpoint tokens use `X-Adapt-Authorization: Bearer TOKEN` when calling the hosted app.
@@ -135,9 +135,9 @@ They cannot authenticate Platform API requests.
 Import an image and use encrypted environment variable sets:
 
 ```sh
-plat images import ubuntu:24.04 --name ubuntu --architecture arm64 --wait
-plat env create --data @variables.json
-plat sandbox create --image-id IMAGE_ID --variable-set VARIABLE_SET_ID --wait
+adapt images import ubuntu:24.04 --name ubuntu --architecture arm64 --wait
+adapt env create --data @variables.json
+adapt sandbox create --image-id IMAGE_ID --variable-set VARIABLE_SET_ID --wait
 ```
 
 `variables.json`:
@@ -156,9 +156,9 @@ override corresponding fields; `--env` and `--label` merge entries. `--no-expiry
 
 ## Commands
 
-Run `plat COMMAND --help` for flags and examples of required JSON fields.
+Run `adapt COMMAND --help` for flags and examples of required JSON fields.
 Every `list` subcommand also accepts `ls`, including nested commands such as
-`plat org members ls` and resource commands such as `plat sandbox ls --all`.
+`adapt org members ls` and resource commands such as `adapt sandbox ls --all`.
 
 | Command | Operations |
 | --- | --- |
@@ -193,12 +193,12 @@ outside the named command surface. `connections` manages upstream MCP services;
 Complex mutations use `--data` with a JSON object, `@file.json`, or `-` for stdin:
 
 ```sh
-plat registry create --data @registry-credential.json
-plat env update VARIABLE_SET_ID --data @variable-patch.json
-plat connections create --data '{"name":"Tools","url":"https://tools.example.com/mcp","authType":"oauth"}'
-plat connections oauth CONNECTION_ID
-plat connections search "files"
-plat connections call CONNECTION_ID read_file --arguments '{"path":"/report.txt"}'
+adapt registry create --data @registry-credential.json
+adapt env update VARIABLE_SET_ID --data @variable-patch.json
+adapt connections create --data '{"name":"Tools","url":"https://tools.example.com/mcp","authType":"oauth"}'
+adapt connections oauth CONNECTION_ID
+adapt connections search "files"
+adapt connections call CONNECTION_ID read_file --arguments '{"path":"/report.txt"}'
 ```
 
 Registry updates require all credential fields and their current `version`. Environment
@@ -216,11 +216,11 @@ JSON events. Files sent to stdout are always raw bytes. `events` emits newline-d
 JSON and reports disconnections; reconnecting yields a reset event, so refresh snapshots.
 
 ```sh
-plat sandbox list --all --json
-plat sandbox list --limit 50 --cursor CURSOR
-plat api GET /v1/whoami
-plat api GET /openapi.json
-plat api POST /v1/auth/update-user --data '{"name":"New name"}'
+adapt sandbox list --all --json
+adapt sandbox list --limit 50 --cursor CURSOR
+adapt api GET /v1/whoami
+adapt api GET /openapi.json
+adapt api POST /v1/auth/update-user --data '{"name":"New name"}'
 ```
 
 Resource lists support cursor pagination with `--all`. Gateway connections and call
@@ -232,7 +232,7 @@ an idempotency UUID. The CLI generates and prints one before sending the request
 retry after a lost response, reuse that key **and the same input**:
 
 ```sh
-plat sandbox create --image ubuntu:24.04 --idempotency-key YOUR_PREVIOUS_UUID
+adapt sandbox create --image ubuntu:24.04 --idempotency-key YOUR_PREVIOUS_UUID
 ```
 
 Mutations are not automatically retried. Asynchronous deletions return `{"status":202}`;
@@ -243,37 +243,43 @@ on creation/start/stop waits for readiness for up to ten minutes. `sandbox wait`
 Use an organization API key in automation without saving it:
 
 ```sh
-export PLAT_TOKEN='your-organization-api-key'
-plat sandbox list
+export ADAPT_TOKEN='your-organization-api-key'
+adapt sandbox list
 ```
 
 Or save a key using stdin:
 
 ```sh
-plat auth login --token-stdin < /path/to/private/key-file
+adapt auth login --token-stdin < /path/to/private/key-file
 ```
 
 An imported key is validated against `/v1/whoami` and its organization is saved. Logging
 out removes a saved API key locally; revoke it explicitly with `keys delete` when needed.
-`PLAT_TOKEN` overrides saved credentials for requests, but logout always targets the
+`ADAPT_TOKEN` overrides saved credentials for requests, but logout always targets the
 saved credential and never revokes an environment override.
 
 | Setting | Flag | Environment variable |
 | --- | --- | --- |
-| API origin | `--api-url` | `PLAT_API_URL` |
-| Profile (default: `default`) | `--profile` | `PLAT_PROFILE` |
-| Organization for this request | `--org` | `PLAT_ORG_ID` |
-| Bearer token | Use stdin to import | `PLAT_TOKEN` |
-| Configuration directory | `--config-dir` | `PLAT_CONFIG_DIR` |
+| API origin | `--api-url` | `ADAPT_API_URL` |
+| Profile (default: `default`) | `--profile` | `ADAPT_PROFILE` |
+| Organization for this request | `--org` | `ADAPT_ORG_ID` |
+| Bearer token | Use stdin to import | `ADAPT_TOKEN` |
+| Configuration directory | `--config-dir` | `ADAPT_CONFIG_DIR` |
 | HTTP timeout (default: 60 seconds) | `--timeout` | — |
 
 Flags override environment variables; both override the selected profile. Configuration
-lives at `$XDG_CONFIG_HOME/plat/config.json`, otherwise `~/.config/plat/config.json`
-(on Windows, `%APPDATA%/plat/config.json`). Credentials are stored in this local JSON
+lives at `$XDG_CONFIG_HOME/adapt/config.json`, otherwise `~/.config/adapt/config.json`
+(on Windows, `%APPDATA%/adapt/config.json`). Credentials are stored in this local JSON
 file, **not encrypted or stored in an OS keychain**. On Unix, the CLI creates directories
 with mode 0700 and files with mode 0600 and refuses to read a group/world-accessible
-configuration file. Do not commit or share this file. Use `PLAT_TOKEN` for ephemeral CI
+configuration file. Do not commit or share this file. Use `ADAPT_TOKEN` for ephemeral CI
 credentials. Profiles and auth status never display saved tokens.
+
+When upgrading from `plat`, use the `adapt` executable and rename any `PLAT_*`
+environment variables to `ADAPT_*`. Existing logins and profiles remain usable:
+if there is no `adapt/config.json`, the CLI continues reading and writing the
+existing `plat/config.json` under the same configuration root. `--config-dir`
+and `ADAPT_CONFIG_DIR` always select the exact directory supplied.
 
 Saved credentials and organization defaults are scoped to their API origin. Overriding
 the origin does not reuse them. HTTP redirects are never followed, and HTTPS is required

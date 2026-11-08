@@ -211,13 +211,13 @@ pub fn step(method: &'static str, target: String, body: Option<Value>, response:
 }
 
 pub fn command(dir: &Path, url: &str) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_plat"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_adapt"));
     for name in [
-        "PLAT_TOKEN",
-        "PLAT_PROFILE",
-        "PLAT_API_URL",
-        "PLAT_ORG_ID",
-        "PLAT_CONFIG_DIR",
+        "ADAPT_TOKEN",
+        "ADAPT_PROFILE",
+        "ADAPT_API_URL",
+        "ADAPT_ORG_ID",
+        "ADAPT_CONFIG_DIR",
     ] {
         cmd.env_remove(name);
     }
@@ -229,8 +229,8 @@ pub fn command(dir: &Path, url: &str) -> Command {
 
 pub fn run(dir: &Path, url: &str, args: &[&str]) -> Output {
     command(dir, url)
-        .env("PLAT_TOKEN", "test-token")
-        .env("PLAT_ORG_ID", ORG)
+        .env("ADAPT_TOKEN", "test-token")
+        .env("ADAPT_ORG_ID", ORG)
         .args(args)
         .output()
         .unwrap()

@@ -37,7 +37,7 @@ async fn run(cli: Cli) -> ExitCode {
         tokio::select! {
             result = commands::run(cli) => result,
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("\nCancelled. Remote executions continue; use `plat execs cancel ID` to stop one.");
+                eprintln!("\nCancelled. Remote executions continue; use `adapt execs cancel ID` to stop one.");
                 return ExitCode::from(130);
             }
         }

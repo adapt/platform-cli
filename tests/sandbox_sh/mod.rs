@@ -82,8 +82,8 @@ fn finish(mut ws: tokio_tungstenite::tungstenite::WebSocket<std::net::TcpStream>
 
 fn shell_command(dir: &std::path::Path, url: &str) -> Command {
     let mut cmd = command(dir, url);
-    cmd.env("PLAT_TOKEN", "test-token")
-        .env("PLAT_ORG_ID", ORG)
+    cmd.env("ADAPT_TOKEN", "test-token")
+        .env("ADAPT_ORG_ID", ORG)
         .args(["sandbox", "sh"]);
     cmd
 }
@@ -270,7 +270,7 @@ fn reports_cleanup_failure_and_preserves_command_failure_status() {
             .unwrap();
         assert_eq!(out.status.code(), Some(if code == 0 { 1 } else { 7 }));
         assert!(
-            String::from_utf8_lossy(&out.stderr).contains(&format!("plat sandbox delete {ID}"))
+            String::from_utf8_lossy(&out.stderr).contains(&format!("adapt sandbox delete {ID}"))
         );
         server.finish();
     }

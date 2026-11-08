@@ -62,7 +62,7 @@ pub async fn run(api: &Api, args: SandboxShell, json_output: bool) -> Result<u8>
         }
     };
     let cleanup = cleanup(api, id).await.with_context(|| {
-        format!("Could not delete temporary sandbox {id}; retry with `plat sandbox delete {id}`")
+        format!("Could not delete temporary sandbox {id}; retry with `adapt sandbox delete {id}`")
     });
     match (result, cleanup) {
         (result, Ok(())) => result,

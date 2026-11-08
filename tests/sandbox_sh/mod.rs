@@ -334,7 +334,8 @@ mod unix {
                         &mut slave,
                         std::ptr::null_mut(),
                         std::ptr::null_mut(),
-                        &mut size
+                        // openpty takes *const winsize on Linux, *mut on macOS.
+                        &raw mut size
                     ),
                     0
                 );

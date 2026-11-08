@@ -26,7 +26,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         .unwrap_or_default();
     let origin = config::origin(cli.api_url.as_deref().unwrap_or(&saved.api_url))?;
     let same_origin = config::origin(&saved.api_url)?.origin() == origin.origin();
-    let env_token = std::env::var("PLAT_TOKEN").ok().filter(|s| !s.is_empty());
+    let env_token = std::env::var("ADAPT_TOKEN").ok().filter(|s| !s.is_empty());
     let token = env_token.as_deref().or_else(|| {
         same_origin
             .then_some(saved.credential.as_ref())
@@ -82,25 +82,25 @@ pub async fn run(cli: Cli) -> Result<u8> {
             config.save(&dir)?;
             if same_origin && let Some(previous) = saved.credential && previous.kind == CredentialKind::Session {
                 let previous_api = Api::new(origin, Some(&previous.token), None, api.timeout)?;
-                if let Err(error) = auth::revoke(&previous_api).await { eprintln!("Signed in, but the previous CLI session could not be revoked: {error}. Manage it with `plat sessions list`."); }
+                if let Err(error) = auth::revoke(&previous_api).await { eprintln!("Signed in, but the previous CLI session could not be revoked: {error}. Manage it with `adapt sessions list`."); }
             }
             eprintln!("Signed in. Profile: {}", output::safe(&cli.profile));
             json!({"authenticated":true,"profile":cli.profile,"apiUrl":authenticated.origin.as_str(),"organizationId":selected,"user":identity["user"]})
         },
         Command::Auth(AuthCommand::Logout { local }) => {
             if !same_origin { bail!("This API URL does not match the saved profile; choose that profile's API URL to log out"); }
-            // PLAT_TOKEN must never change which saved credential logout revokes.
+            // ADAPT_TOKEN must never change which saved credential logout revokes.
             if let Some(credential) = saved.credential.as_ref() {
                 if !local && credential.kind == CredentialKind::Session {
                     let saved_api = Api::new(origin, Some(&credential.token), None, api.timeout)?;
                     auth::revoke(&saved_api).await?;
                 }
                 if !local && credential.kind == CredentialKind::ApiKey {
-                    eprintln!("Removed the local API key. Revoke the key with `plat keys delete ID` if needed.");
+                    eprintln!("Removed the local API key. Revoke the key with `adapt keys delete ID` if needed.");
                 }
             }
             if let Some(profile) = config.profiles.get_mut(&cli.profile) { profile.credential = None; config.save(&dir)?; }
-            if env_token.is_some() { eprintln!("PLAT_TOKEN is still set in your shell."); }
+            if env_token.is_some() { eprintln!("ADAPT_TOKEN is still set in your shell."); }
             json!({"loggedOut":true,"profile":cli.profile})
         },
         Command::Auth(AuthCommand::Status) => auth::status(&api).await?,
@@ -184,7 +184,7 @@ fn choice(value: impl ValueEnum) -> String {
 fn org(api: &Api) -> Result<&str> {
     api.organization
         .as_deref()
-        .context("Select an organization with `plat org use ID` or --org ID")
+        .context("Select an organization with `adapt org use ID` or --org ID")
 }
 async fn delete(api: &Api, path: &str) -> Result<Value> {
     api.json(Method::DELETE, path, None, &[], None).await

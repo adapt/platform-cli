@@ -84,7 +84,7 @@ impl Api {
             && !path.starts_with("/v1/auth/device/")
         {
             bail!(
-                "Not signed in to {}. Run `plat auth login` or set PLAT_TOKEN",
+                "Not signed in to {}. Run `adapt auth login` or set ADAPT_TOKEN",
                 self.origin
             );
         }
@@ -201,10 +201,10 @@ impl fmt::Display for ApiError {
             write!(f, "; retry after {}", output::safe(retry))?;
         }
         if self.status == StatusCode::UNAUTHORIZED {
-            write!(f, "; run `plat auth login` to sign in again")?;
+            write!(f, "; run `adapt auth login` to sign in again")?;
         }
         if self.code == "ORGANIZATION_REQUIRED" {
-            write!(f, "; run `plat org list` then `plat org use ID`")?;
+            write!(f, "; run `adapt org list` then `adapt org use ID`")?;
         }
         Ok(())
     }

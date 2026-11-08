@@ -5,26 +5,26 @@ use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(
-    name = "plat",
+    name = "adapt",
     version,
     about = "Your Platform, from the terminal.",
-    after_help = "Start here: plat auth login\nUse --json for scripting. Run any command with --help for details."
+    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details."
 )]
 pub struct Cli {
     /// Saved connection profile
-    #[arg(long, global = true, env = "PLAT_PROFILE", default_value = "default")]
+    #[arg(long, global = true, env = "ADAPT_PROFILE", default_value = "default")]
     pub profile: String,
     /// Platform API origin (defaults to https://platform.adaptstaging.com)
-    #[arg(long, global = true, env = "PLAT_API_URL")]
+    #[arg(long, global = true, env = "ADAPT_API_URL")]
     pub api_url: Option<String>,
     /// Organization ID for this request
-    #[arg(long, global = true, env = "PLAT_ORG_ID")]
+    #[arg(long, global = true, env = "ADAPT_ORG_ID")]
     pub org: Option<Uuid>,
     /// Emit JSON (also the default when stdout is piped)
     #[arg(long, global = true)]
     pub json: bool,
     /// Configuration directory
-    #[arg(long, global = true, env = "PLAT_CONFIG_DIR")]
+    #[arg(long, global = true, env = "ADAPT_CONFIG_DIR")]
     pub config_dir: Option<PathBuf>,
     /// HTTP request timeout in seconds (streams use an inactivity timeout)
     #[arg(long, global = true, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]

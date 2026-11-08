@@ -114,7 +114,7 @@ async fn poll(api: &Api, code: &str, deadline: Instant, mut interval: Duration) 
         )
         .await;
         if Instant::now() >= deadline {
-            bail!("Sign-in code expired. Run `plat auth login` again");
+            bail!("Sign-in code expired. Run `adapt auth login` again");
         }
         let body = json!({
             "client_id": CLIENT_ID, "device_code": code,
@@ -123,7 +123,7 @@ async fn poll(api: &Api, code: &str, deadline: Instant, mut interval: Duration) 
         let request = api.post("/v1/auth/device/token", &body);
         let result = timeout_at(deadline, request)
             .await
-            .context("Sign-in code expired. Run `plat auth login` again")?;
+            .context("Sign-in code expired. Run `adapt auth login` again")?;
         match result {
             Ok(value) => {
                 let token: Token =
@@ -146,7 +146,7 @@ async fn poll(api: &Api, code: &str, deadline: Instant, mut interval: Duration) 
                         }
                         "access_denied" => bail!("Sign-in was denied in the browser"),
                         "expired_token" | "invalid_grant" => bail!(
-                            "Sign-in code expired or was already used. Run `plat auth login` again"
+                            "Sign-in code expired or was already used. Run `adapt auth login` again"
                         ),
                         _ => {}
                     }
@@ -200,11 +200,11 @@ pub async fn select_organization(
         return Ok(organizations[0]["id"].as_str().map(str::to_owned));
     }
     if organizations.is_empty() {
-        eprintln!("No organizations yet. Create one with `plat org create NAME --slug SLUG`.");
+        eprintln!("No organizations yet. Create one with `adapt org create NAME --slug SLUG`.");
         return Ok(None);
     }
     if !interactive || !io::stdin().is_terminal() || !io::stderr().is_terminal() {
-        eprintln!("Choose an organization with `plat org list` and `plat org use ID`.");
+        eprintln!("Choose an organization with `adapt org list` and `adapt org use ID`.");
         return Ok(None);
     }
     eprintln!("\nChoose an organization:");

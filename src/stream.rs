@@ -162,7 +162,7 @@ pub async fn logs(api: &Api, id: Uuid, mut cursor: u64, json_output: bool) -> Re
                     })
                 {
                     return Err(error).with_context(|| {
-                        format!("Resume with `plat execs logs {id} --cursor {cursor}`")
+                        format!("Resume with `adapt execs logs {id} --cursor {cursor}`")
                     });
                 }
                 eprintln!("Log stream interrupted; reconnecting after cursor {cursor}…");
@@ -240,7 +240,7 @@ pub async fn attach(
     json_output: bool,
 ) -> Result<u8> {
     if !api.authenticated {
-        bail!("Run `plat auth login` first");
+        bail!("Run `adapt auth login` first");
     }
     if tty {
         require_terminal()?;
@@ -279,7 +279,7 @@ pub async fn attach(
     loop {
         tokio::select! {
             message = reader.next() => {
-                let Some(message) = message else { bail!("Attachment disconnected. Resume with `plat execs attach {id} --after {last_sequence}` (input is never replayed)"); };
+                let Some(message) = message else { bail!("Attachment disconnected. Resume with `adapt execs attach {id} --after {last_sequence}` (input is never replayed)"); };
                 match message? {
                     Message::Text(text) => {
                         let data: Value = serde_json::from_str(&text)?;
@@ -305,7 +305,7 @@ pub async fn attach(
                         }
                     },
                     Message::Ping(bytes) => writer.send(Message::Pong(bytes)).await?,
-                    Message::Close(_) => bail!("Attachment closed before a result. Resume with `plat execs attach {id} --after {last_sequence}`"),
+                    Message::Close(_) => bail!("Attachment closed before a result. Resume with `adapt execs attach {id} --after {last_sequence}`"),
                     _ => {},
                 }
             },

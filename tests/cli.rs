@@ -11,7 +11,7 @@ fn help_and_argument_validation() {
     let output = run(dir.path(), "http://localhost:3000", &["--help"]);
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
-    assert!(help.contains("Usage: plat"));
+    assert!(help.contains("Usage: adapt"));
     assert!(help.contains("auth"));
     for args in [
         vec!["sandbox", "create", "--cpu", "0"],
@@ -290,8 +290,8 @@ fn json_file_and_stdin_are_supported_without_secret_echoes() {
         json!({"id":ID}),
     )]);
     let mut cmd = command(dir.path(), &server.url);
-    cmd.env("PLAT_TOKEN", "test-token")
-        .env("PLAT_ORG_ID", ORG)
+    cmd.env("ADAPT_TOKEN", "test-token")
+        .env("ADAPT_ORG_ID", ORG)
         .args(["env", "create", "--data", "-"]);
     success(&with_stdin(cmd, data.to_string().as_bytes()));
     server.finish();
@@ -321,7 +321,7 @@ fn file_transfer_is_binary_and_query_paths_are_encoded() {
     ]);
     let dir = tempfile::tempdir().unwrap();
     let mut cmd = command(dir.path(), &server.url);
-    cmd.env("PLAT_TOKEN", "test-token")
+    cmd.env("ADAPT_TOKEN", "test-token")
         .args(["files", "put", ID, "-", "/app/a b?#"]);
     success(&with_stdin(cmd, &[0, 255, 128, b'\n', b'\r']));
     let out = run(
@@ -407,7 +407,7 @@ fn browser_login_obeys_pending_and_slow_down_and_saves_private_profile() {
     ]);
     let dir = tempfile::tempdir().unwrap();
     let output = command(dir.path(), &server.url)
-        .env("PLAT_TOKEN", "unrelated-env-token")
+        .env("ADAPT_TOKEN", "unrelated-env-token")
         .args(["auth", "login", "--no-browser"])
         .output()
         .unwrap();
@@ -752,8 +752,8 @@ fn websocket_streams_binary_stdin_and_separate_output_with_remote_exit_status() 
     });
     let dir = tempfile::tempdir().unwrap();
     let mut cmd = command(dir.path(), &url);
-    cmd.env("PLAT_TOKEN", "test-token")
-        .env("PLAT_ORG_ID", ORG)
+    cmd.env("ADAPT_TOKEN", "test-token")
+        .env("ADAPT_ORG_ID", ORG)
         .args(["execs", "attach", ID, "--stdin"]);
     let out = with_stdin(cmd, &[0, 255, b'\n']);
     assert_eq!(

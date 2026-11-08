@@ -9,7 +9,7 @@ execution streams, and file transfers. No Platform backend changes are required.
 On macOS or Linux, install the latest build from your Platform deployment:
 
 ```sh
-curl -fsSL "$PLATFORM_URL/install.sh" | sh
+curl -fsSL "$PLATFORM_URL/install.sh" | sh -s -- "$PLATFORM_URL"
 ```
 
 Set `PLATFORM_URL` to your Platform origin, without `/v1`. The installer supports

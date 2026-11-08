@@ -6,14 +6,14 @@ execution streams, and file transfers. No Platform backend changes are required.
 
 ## Install and sign in
 
-On macOS or Linux, install the latest build from your Platform deployment:
+On macOS or Linux, install the latest build:
 
 ```sh
-curl -fsSL "$PLATFORM_URL/install.sh" | sh -s -- "$PLATFORM_URL"
+curl -fsSL https://platform.adaptstaging.com/install.sh | sh
 ```
 
-Set `PLATFORM_URL` to your Platform origin, without `/v1`. The installer supports
-Intel and Apple Silicon Macs (macOS 11 or later), and x86-64 and ARM64 Linux.
+The installer supports Intel and Apple Silicon Macs (macOS 11 or later), and
+x86-64 and ARM64 Linux.
 It verifies SHA-256 and installs to `~/.local/bin` without `sudo`. Add that
 directory to your `PATH` if needed. Run the same command to update, or set
 `ADAPT_INSTALL_DIR` on the `sh` command to choose another directory.

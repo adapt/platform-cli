@@ -60,7 +60,7 @@ fn deleted() -> Exchange {
     }))
 }
 
-fn finish(mut ws: tokio_tungstenite::tungstenite::WebSocket<std::net::TcpStream>, code: u8) {
+fn finish(mut ws: tokio_tungstenite::tungstenite::WebSocket<TestSocket>, code: u8) {
     ws.send(Message::Text(
         json!({"kind":"stdout","sequence":1,"data_base64":"aGVsbG8K"})
             .to_string()

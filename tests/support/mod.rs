@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    io::{Read, Write},
+    io::{self, Read, Write},
     net::{TcpListener, TcpStream},
     path::Path,
     process::{Command, Output, Stdio},
@@ -54,7 +54,36 @@ impl Reply {
 }
 
 pub type Handler = Box<dyn FnOnce(&Request) -> Reply + Send>;
-pub type Exchange = Box<dyn FnOnce(TcpStream) -> Request + Send>;
+pub type Exchange = Box<dyn FnOnce(TestSocket) -> Request + Send>;
+
+pub struct TestSocket(TcpStream);
+
+impl Read for TestSocket {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        retry_interrupted(|| self.0.read(buffer))
+    }
+}
+
+impl Write for TestSocket {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        retry_interrupted(|| self.0.write(buffer))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        retry_interrupted(|| self.0.flush())
+    }
+}
+
+fn retry_interrupted<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    loop {
+        match operation() {
+            // Concurrent tests spawn and signal subprocesses. Keep EINTR from
+            // interrupting either HTTP requests or WebSocket mock sessions.
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
+}
 
 pub fn http(step: Handler) -> Exchange {
     Box::new(move |mut socket| {
@@ -79,7 +108,7 @@ pub fn http(step: Handler) -> Exchange {
 
 #[allow(clippy::result_large_err)] // Tungstenite's handshake callback error type.
 pub fn websocket(
-    session: impl FnOnce(tokio_tungstenite::tungstenite::WebSocket<TcpStream>) + Send + 'static,
+    session: impl FnOnce(tokio_tungstenite::tungstenite::WebSocket<TestSocket>) + Send + 'static,
 ) -> Exchange {
     Box::new(move |socket| {
         let mut received = None;
@@ -127,6 +156,7 @@ impl Server {
                 let socket = loop {
                     match listener.accept() {
                         Ok((socket, _)) => break socket,
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                         Err(e)
                             if e.kind() == std::io::ErrorKind::WouldBlock
                                 && start.elapsed() < Duration::from_secs(30) =>
@@ -141,7 +171,7 @@ impl Server {
                 socket
                     .set_read_timeout(Some(Duration::from_secs(10)))
                     .unwrap();
-                requests.push(step(socket));
+                requests.push(step(TestSocket(socket)));
             }
             requests
         });
@@ -152,11 +182,11 @@ impl Server {
     }
 }
 
-fn read_request(socket: &mut TcpStream) -> Request {
+fn read_request(socket: &mut TestSocket) -> Request {
     let mut bytes = Vec::new();
     let mut chunk = [0; 4096];
     let boundary = loop {
-        let n = read_chunk(socket, &mut chunk);
+        let n = socket.read(&mut chunk).unwrap();
         assert!(n > 0);
         bytes.extend_from_slice(&chunk[..n]);
         if let Some(index) = bytes.windows(4).position(|s| s == b"\r\n\r\n") {
@@ -178,7 +208,7 @@ fn read_request(socket: &mut TcpStream) -> Request {
         .map(|s| s.parse().unwrap())
         .unwrap_or(0);
     while bytes.len() < boundary + length {
-        let n = read_chunk(socket, &mut chunk);
+        let n = socket.read(&mut chunk).unwrap();
         assert!(n > 0);
         bytes.extend_from_slice(&chunk[..n]);
     }
@@ -188,18 +218,6 @@ fn read_request(socket: &mut TcpStream) -> Request {
         headers,
         body: bytes[boundary..].to_vec(),
         at: Instant::now(),
-    }
-}
-
-fn read_chunk(socket: &mut TcpStream, buffer: &mut [u8]) -> usize {
-    loop {
-        match socket.read(buffer) {
-            Ok(n) => return n,
-            // Other tests spawn and signal subprocesses while the mock server
-            // reads requests. A signal can interrupt a blocking read on Linux.
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(error) => panic!("Cannot read mock request: {error}"),
-        }
     }
 }
 

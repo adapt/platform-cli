@@ -276,10 +276,8 @@ configuration file. Do not commit or share this file. Use `ADAPT_TOKEN` for ephe
 credentials. Profiles and auth status never display saved tokens.
 
 When upgrading from `plat`, use the `adapt` executable and rename any `PLAT_*`
-environment variables to `ADAPT_*`. Existing logins and profiles remain usable:
-if there is no `adapt/config.json`, the CLI continues reading and writing the
-existing `plat/config.json` under the same configuration root. `--config-dir`
-and `ADAPT_CONFIG_DIR` always select the exact directory supplied.
+environment variables to `ADAPT_*`. Run `adapt auth login` to sign in using the
+new configuration directory.
 
 Saved credentials and organization defaults are scoped to their API origin. Overriding
 the origin does not reuse them. HTTP redirects are never followed, and HTTPS is required

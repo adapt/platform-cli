@@ -94,3 +94,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CLI_RELEASE_BUCKET: ${{ secrets.CLI_RELEASE_BUCKET }}
         run: python3 scripts/publish.py --bucket "$CLI_RELEASE_BUCKET" --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --directory dist
+
+  publish-production:
+    needs: [check, publish]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 15
+    concurrency:
+      group: publish-cli-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: adapt-*
+          path: dist
+          merge-multiple: true
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: adapt-platform-prod
+          workload_identity_provider: projects/57849980830/locations/global/workloadIdentityPools/github/providers/platform-cli
+          service_account: platform-cli-publish@adapt-platform-prod.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Publish the tested artifacts to production
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLI_RELEASE_BUCKET: adapt-platform-prod-cli
+        run: python3 scripts/publish.py --bucket "$CLI_RELEASE_BUCKET" --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --directory dist

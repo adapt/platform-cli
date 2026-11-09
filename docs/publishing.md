@@ -18,8 +18,7 @@ Windows users can download and rename the `.exe` directly.
 
 ## Configuration
 
-Configure these repository **Actions secrets**, including identifiers that are
-public in Google Cloud, so deployment details stay out of source control:
+The staging publisher uses these repository **Actions secrets**:
 
 | Secret | Value |
 | --- | --- |
@@ -41,10 +40,43 @@ Platform supplies the same bucket name through its runtime deployment
 configuration and proxies published files at `/cli/`. Its static `/install.sh`
 downloads through that proxy on the CLI's default API origin.
 
+### Production
+
+After all target checks and staging publication succeed, `publish-production`
+downloads the same five tested artifacts and publishes them to
+`gs://adapt-platform-prod-cli` in `adapt-platform-prod`. Both environments use
+the same production-default binary; use an explicit staging profile when needed.
+Production's public identifiers are configured in the workflow and require no
+additional GitHub secrets:
+
+| Setting | Value |
+| --- | --- |
+| Publisher | `platform-cli-publish@adapt-platform-prod.iam.gserviceaccount.com` |
+| OIDC provider | `projects/57849980830/locations/global/workloadIdentityPools/github/providers/platform-cli` |
+| Bucket | `adapt-platform-prod-cli`, `us-central1` |
+| GitHub environment | `production` |
+
+The publisher has object-admin access only to this bucket. The bucket uses
+uniform access and public access prevention. Platform's production runtime has
+object-viewer access and serves the allowed binaries through its public `/cli/`
+proxy. The project's organization policy does not permit public bucket grants.
+OIDC trust requires repository ID `1447622020`, owner ID `219891555`, a push to
+`main`, this repository's `ci.yml` workflow, and the `production` environment.
+Its immutable subject is
+`repo:adapt@219891555/platform-cli@1447622020:environment:production`.
+GitHub creates the environment on first use if it does not already exist.
+
+Platform must set its production `CLI_RELEASE_BUCKET=adapt-platform-prod-cli`
+and serve an installer downloading from `https://platform.adapt.com/cli`.
+Merge and publish the CLI first, then enable those Platform download settings.
+The bucket starts empty; the first successful main publication populates it.
+
 ## Public download layout
 
-Objects are available without credentials at
-`https://storage.googleapis.com/BUCKET/`:
+Production downloads are available without caller credentials at
+`https://platform.adapt.com/cli/`. Its backing bucket is private. Staging's
+existing public bucket also supports direct downloads at
+`https://storage.googleapis.com/BUCKET/`. Both use this object layout:
 
 ```text
 COMMIT_SHA/

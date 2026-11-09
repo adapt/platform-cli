@@ -9,7 +9,7 @@ execution streams, and file transfers. No Platform backend changes are required.
 On macOS or Linux, install the latest build:
 
 ```sh
-curl -fsSL https://platform.adaptstaging.com/install.sh | sh
+curl -fsSL https://platform.adapt.com/install.sh | sh
 ```
 
 The installer supports Intel and Apple Silicon Macs (macOS 11 or later), and
@@ -43,10 +43,18 @@ adapt --profile local auth login --api-url http://localhost:3000
 adapt --profile local sandbox list
 ```
 
-The API URL defaults to `https://platform.adaptstaging.com`. Saved profiles, `ADAPT_API_URL`,
+The API URL defaults to `https://platform.adapt.com`. Saved profiles, `ADAPT_API_URL`,
 or `--api-url` can select another origin. Use the API origin, without `/v1`.
 The verification URL returned by the API may point at
 a separate dashboard origin. `--no-browser` prints the link for use on another machine.
+
+For staging, use a separate profile:
+
+```sh
+adapt --profile staging auth login --api-url https://platform.adaptstaging.com
+```
+
+Existing profiles keep their saved origin and credentials when upgrading.
 
 ```sh
 adapt auth status

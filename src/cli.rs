@@ -14,7 +14,7 @@ pub struct Cli {
     /// Saved connection profile
     #[arg(long, global = true, env = "ADAPT_PROFILE", default_value = "default")]
     pub profile: String,
-    /// Platform API origin (defaults to https://platform.adaptstaging.com)
+    /// Platform API origin (defaults to https://platform.adapt.com)
     #[arg(long, global = true, env = "ADAPT_API_URL")]
     pub api_url: Option<String>,
     /// Organization ID for this request

@@ -27,7 +27,7 @@ without a browser, use `adapt auth login --no-browser` and give the user the
 approval URL and code. A noninteractive login with multiple organizations needs
 `--org ID`, or select the organization afterward with `adapt org use`.
 
-The default API origin is `https://platform.adaptstaging.com`. `--profile NAME`,
+The default API origin is `https://platform.adapt.com`. `--profile NAME`,
 `--api-url ORIGIN`, and `--org ID` select a different context. Credentials and
 saved organization defaults are scoped to the API origin. `ADAPT_TOKEN` overrides
 saved credentials; never print it or the credential file. Use `adapt profiles`

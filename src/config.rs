@@ -8,7 +8,7 @@ use std::{
 };
 use url::Url;
 
-pub const DEFAULT_URL: &str = "https://platform.adaptstaging.com";
+pub const DEFAULT_URL: &str = "https://platform.adapt.com";
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

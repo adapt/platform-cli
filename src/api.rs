@@ -1,11 +1,16 @@
 use crate::{cli::Page, output};
 use anyhow::{Context, Result, bail};
 use reqwest::{
-    Client, Method, RequestBuilder, Response, StatusCode,
+    Client, Method, Request, RequestBuilder, Response, StatusCode,
     header::{AUTHORIZATION, HeaderMap, HeaderValue},
 };
 use serde_json::{Value, json};
-use std::{collections::HashSet, fmt, time::Duration};
+use std::{
+    collections::HashSet,
+    fmt,
+    time::{Duration, SystemTime},
+};
+use tokio::time::Instant;
 use url::Url;
 
 #[derive(Clone)]
@@ -102,6 +107,9 @@ impl Api {
         query: &[(String, String)],
         key: Option<&str>,
     ) -> Result<Value> {
+        // A lost response to a mutation may hide a committed operation. Only
+        // replay reads, even when a caller supplies an idempotency key.
+        let retry_reads = matches!(method, Method::GET | Method::HEAD);
         let mut request = self
             .request(method, path)?
             .query(query)
@@ -112,8 +120,45 @@ impl Api {
         if let Some(key) = key {
             request = request.header("Idempotency-Key", key);
         }
-        let response = request
-            .send()
+        let request = request.build()?;
+        if !retry_reads {
+            return self.json_response(request).await;
+        }
+        let deadline = Instant::now() + self.timeout;
+        tokio::time::timeout_at(deadline, async {
+            let mut backoff = Duration::from_millis(250);
+            loop {
+                // JSON request bodies are buffered, so each attempt preserves
+                // the original method, query, headers, and body.
+                let attempt = request
+                    .try_clone()
+                    .context("Cannot replay Platform request")?;
+                let error = match self.json_response(attempt).await {
+                    Ok(value) => return Ok(value),
+                    Err(error) => error,
+                };
+                let Some(delay) = read_retry_delay(&error, backoff) else {
+                    return Err(error);
+                };
+                if delay >= deadline.saturating_duration_since(Instant::now()) {
+                    return Err(error).context("Platform read retry would exceed --timeout");
+                }
+                eprintln!(
+                    "Platform read interrupted; retrying in {} ms…",
+                    delay.as_millis()
+                );
+                tokio::time::sleep(delay).await;
+                backoff = (backoff * 2).min(Duration::from_secs(8));
+            }
+        })
+        .await
+        .context("Platform request timed out (including read retries)")?
+    }
+
+    async fn json_response(&self, request: Request) -> Result<Value> {
+        let response = self
+            .client
+            .execute(request)
             .await
             .map_err(|e| e.without_url())
             .context("Platform request failed")?;
@@ -176,6 +221,36 @@ impl Api {
     }
 }
 
+fn read_retry_delay(error: &anyhow::Error, backoff: Duration) -> Option<Duration> {
+    if let Some(error) = error.downcast_ref::<ApiError>() {
+        if !matches!(error.status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504) {
+            return None;
+        }
+        let retry_after = error.retry_after.as_deref().and_then(|value| {
+            value
+                .parse::<u64>()
+                .ok()
+                .map(Duration::from_secs)
+                .or_else(|| {
+                    httpdate::parse_http_date(value)
+                        .ok()
+                        .map(|date| date.duration_since(SystemTime::now()).unwrap_or_default())
+                })
+        });
+        return Some(backoff.max(retry_after.unwrap_or_default()));
+    }
+    error
+        .downcast_ref::<reqwest::Error>()
+        .filter(|error| {
+            error.is_timeout()
+                || error.is_connect()
+                || error.is_request()
+                || error.is_body()
+                || error.is_decode()
+        })
+        .map(|_| backoff)
+}
+
 #[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,
@@ -221,7 +296,11 @@ pub async fn ensure_success(response: Response) -> Result<Response> {
         .get("retry-after")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    let bytes = limited_bytes(response, 1024 * 1024).await?;
+    // Preserve the status even if a redeploy interrupts the error body. In
+    // particular, an incomplete 401/403 response must not become retryable.
+    let bytes = limited_bytes(response, 1024 * 1024)
+        .await
+        .unwrap_or_default();
     let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     let error = &value["error"];
     let code = error["code"]

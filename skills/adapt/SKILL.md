@@ -117,6 +117,10 @@ Resource listings return objects such as `{"sandboxes": [...], "nextCursor": ...
 Use `--all` to follow cursor pages. Tool search uses `--offset` and its returned
 `nextOffset`; connection listings have a server-defined page size.
 
+JSON API reads retry transient connection and gateway failures with backoff,
+honoring `Retry-After` within the original `--timeout` budget. Readiness waits keep
+their overall deadline. Authentication errors and invalid JSON fail immediately.
+
 Resource creation and execution print an idempotency UUID before sending the
 request. If a response is lost, retry with the same inputs and
 `--idempotency-key UUID` to avoid creating another resource. Mutations are not

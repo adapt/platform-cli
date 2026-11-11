@@ -26,7 +26,7 @@ pub struct Cli {
     /// Configuration directory
     #[arg(long, global = true, env = "ADAPT_CONFIG_DIR")]
     pub config_dir: Option<PathBuf>,
-    /// HTTP request timeout in seconds (streams use an inactivity timeout)
+    /// HTTP request timeout in seconds, including read retries (streams use an inactivity timeout)
     #[arg(long, global = true, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
     pub timeout: u64,
     #[command(subcommand)]

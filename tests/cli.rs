@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use support::*;
 
+mod retries;
 mod sandbox_sh;
 
 #[test]

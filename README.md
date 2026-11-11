@@ -296,10 +296,16 @@ retry after a lost response, reuse that key **and the same input**:
 adapt sandbox create --image ubuntu:24.04 --idempotency-key YOUR_PREVIOUS_UUID
 ```
 
+JSON API reads (`GET`/`HEAD`, including readiness polling) retry connection failures,
+interrupted response bodies, and HTTP 408, 429, 500, 502, 503, and 504 responses.
+Retries back off from 250 ms to 8 seconds, honor `Retry-After`, and share the original
+`--timeout` budget (60 seconds by default). Progress goes to stderr so JSON stdout
+stays parseable. Authentication errors and invalid JSON fail immediately.
+
 Mutations are not automatically retried. Asynchronous deletions return `{"status":202}`;
 confirmed empty responses return their HTTP status, such as `{"status":204}`. `--wait`
 on creation/start/stop waits for readiness for up to ten minutes. `sandbox wait` and
-`images wait` accept `--wait-timeout SECONDS`.
+`images wait` accept `--wait-timeout SECONDS`; retries cannot extend that deadline.
 
 Use an organization API key in automation without saving it:
 

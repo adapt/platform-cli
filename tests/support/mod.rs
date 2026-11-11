@@ -182,7 +182,7 @@ impl Server {
     }
 }
 
-fn read_request(socket: &mut TestSocket) -> Request {
+pub fn read_request(socket: &mut TestSocket) -> Request {
     let mut bytes = Vec::new();
     let mut chunk = [0; 4096];
     let boundary = loop {
@@ -241,6 +241,10 @@ pub fn step(method: &'static str, target: String, body: Option<Value>, response:
 }
 
 pub fn command(dir: &Path, url: &str) -> Command {
+    command_with_timeout(dir, url, 10)
+}
+
+pub fn command_with_timeout(dir: &Path, url: &str, timeout: u64) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_adapt"));
     for name in [
         "ADAPT_TOKEN",
@@ -253,7 +257,8 @@ pub fn command(dir: &Path, url: &str) -> Command {
     }
     cmd.arg("--config-dir")
         .arg(dir)
-        .args(["--api-url", url, "--timeout", "10"]);
+        .args(["--api-url", url, "--timeout"])
+        .arg(timeout.to_string());
     cmd
 }
 

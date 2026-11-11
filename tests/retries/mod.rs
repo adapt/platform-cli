@@ -201,7 +201,8 @@ fn transient_failures_do_not_extend_the_wait_deadline() {
 fn head_reads_honor_retry_after_http_dates() {
     let server = Server::start(vec![
         Box::new(|_| {
-            let mut reply = Reply::json(503, json!({}));
+            let mut reply = Reply::bytes("application/json", vec![]);
+            reply.status = 503;
             reply.headers.push((
                 "Retry-After".into(),
                 httpdate::fmt_http_date(SystemTime::now() + Duration::from_secs(2)),

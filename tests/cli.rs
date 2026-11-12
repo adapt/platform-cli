@@ -767,3 +767,111 @@ fn websocket_streams_binary_stdin_and_separate_output_with_remote_exit_status() 
     assert!(String::from_utf8_lossy(&out.stderr).contains("error\n"));
     handle.join().unwrap();
 }
+
+const STAGING_ORG: &str = "44444444-4444-4444-8444-444444444444";
+const LOCAL_ORG: &str = "55555555-5555-4555-8555-555555555555";
+
+/// `org current` makes no network request, so profile selection can be observed directly.
+fn current(
+    dir: &std::path::Path,
+    env_profile: Option<&str>,
+    flag_profile: Option<&str>,
+) -> std::process::Output {
+    let mut cmd = command(dir, "http://localhost:3000");
+    if let Some(name) = env_profile {
+        cmd.env("ADAPT_PROFILE", name);
+    }
+    if let Some(name) = flag_profile {
+        cmd.args(["--profile", name]);
+    }
+    cmd.args(["org", "current"]).output().unwrap()
+}
+
+fn saved_profiles(dir: &std::path::Path) {
+    save_profiles(
+        dir,
+        "http://localhost:3000",
+        &[
+            ("default", ORG),
+            ("staging", STAGING_ORG),
+            ("local", LOCAL_ORG),
+        ],
+    );
+}
+
+#[test]
+fn adapt_profile_env_selects_the_saved_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    saved_profiles(dir.path());
+    let output = current(dir.path(), Some("staging"), None);
+    let value = success(&output);
+    assert_eq!(value["profile"], "staging");
+    assert_eq!(value["organizationId"], STAGING_ORG);
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+}
+
+#[test]
+fn profile_flag_overrides_adapt_profile_env() {
+    let dir = tempfile::tempdir().unwrap();
+    saved_profiles(dir.path());
+    let output = current(dir.path(), Some("staging"), Some("local"));
+    let value = success(&output);
+    assert_eq!(value["profile"], "local");
+    assert_eq!(value["organizationId"], LOCAL_ORG);
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+}
+
+#[test]
+fn default_profile_is_used_without_flag_or_env() {
+    let dir = tempfile::tempdir().unwrap();
+    saved_profiles(dir.path());
+    let output = current(dir.path(), None, None);
+    let value = success(&output);
+    assert_eq!(value["profile"], "default");
+    assert_eq!(value["organizationId"], ORG);
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+}
+
+#[test]
+fn missing_profile_warns_whether_named_by_flag_or_env() {
+    let dir = tempfile::tempdir().unwrap();
+    saved_profiles(dir.path());
+    for (env_profile, flag_profile) in [(Some("ghost"), None), (None, Some("ghost"))] {
+        let output = current(dir.path(), env_profile, flag_profile);
+        let value = success(&output);
+        assert_eq!(value["profile"], "ghost");
+        assert!(value["organizationId"].is_null());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("profile 'ghost' does not exist"),
+            "{stderr}"
+        );
+        // The copyable hint must not embed the unquoted, user-controlled name.
+        assert!(!stderr.contains("--profile ghost"), "{stderr}");
+        assert!(stderr.contains("--profile <name> auth login"), "{stderr}");
+    }
+}
+
+#[test]
+fn flag_naming_a_saved_profile_silences_a_missing_env_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    saved_profiles(dir.path());
+    let output = current(dir.path(), Some("ghost"), Some("staging"));
+    assert_eq!(success(&output)["profile"], "staging");
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+}
+
+#[test]
+fn missing_default_profile_and_profile_listing_do_not_warn() {
+    let dir = tempfile::tempdir().unwrap();
+    // A fresh install has no profiles at all.
+    let output = current(dir.path(), None, None);
+    assert_eq!(success(&output)["profile"], "default");
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+    let output = command(dir.path(), "http://localhost:3000")
+        .args(["--profile", "ghost", "profiles"])
+        .output()
+        .unwrap();
+    success(&output);
+    assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+}

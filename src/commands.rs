@@ -23,6 +23,23 @@ pub async fn run(cli: Cli) -> Result<u8> {
     }
     let dir = config::directory(cli.config_dir.as_deref())?;
     let mut config = Config::load(&dir)?;
+    // --profile and ADAPT_PROFILE share one value (the flag wins), so one check covers both.
+    // "default" is exempt because a fresh install has no saved profiles. These commands
+    // create or list profiles, so a missing name is expected there.
+    if cli.profile != "default"
+        && !config.profiles.contains_key(&cli.profile)
+        && !matches!(
+            &cli.command,
+            Command::Auth(AuthCommand::Login { .. })
+                | Command::Org(OrgCommand::Use { .. })
+                | Command::Profiles
+        )
+    {
+        eprintln!(
+            "Warning: profile '{}' does not exist; using defaults. Run `adapt profiles` to list saved profiles or `adapt --profile <name> auth login` to create one.",
+            output::safe(&cli.profile)
+        );
+    }
     let saved = config
         .profiles
         .get(&cli.profile)

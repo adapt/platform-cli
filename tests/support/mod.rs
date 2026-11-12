@@ -291,6 +291,33 @@ pub fn success(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+/// Writes one private config file with several profiles: (name, organization ID).
+pub fn save_profiles(dir: &Path, url: &str, profiles: &[(&str, &str)]) {
+    let profiles: serde_json::Map<String, Value> = profiles
+        .iter()
+        .map(|(name, org)| {
+            (
+                (*name).to_owned(),
+                json!({"api_url":url,"organization_id":org,"credential":{"token":"saved-secret","kind":"session","expires_at":4000000000_u64}}),
+            )
+        })
+        .collect();
+    std::fs::write(
+        dir.join("config.json"),
+        serde_json::to_vec(&json!({ "profiles": profiles })).unwrap(),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            dir.join("config.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
+}
+
 pub fn save_profile(dir: &Path, url: &str) {
     let data = json!({"profiles":{"default":{"api_url":url,"organization_id":ORG,"credential":{"token":"saved-secret","kind":"session","expires_at":4000000000_u64}}}});
     std::fs::write(dir.join("config.json"), serde_json::to_vec(&data).unwrap()).unwrap();

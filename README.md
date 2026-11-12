@@ -56,6 +56,12 @@ adapt --profile staging auth login --api-url https://platform.adaptstaging.com
 
 Existing profiles keep their saved origin and credentials when upgrading.
 
+To use a profile without repeating `--profile`, set `ADAPT_PROFILE` (for example
+`export ADAPT_PROFILE=staging`). An explicit `--profile` always takes precedence over the
+variable. If the selected profile name has not been saved, `adapt` warns on stderr and
+continues with defaults; `default` is exempt, and `auth login`, `org use`, and `profiles`
+do not warn because they create or list profiles. `adapt profiles` lists saved names.
+
 ```sh
 adapt auth status
 adapt org list
@@ -328,7 +334,7 @@ saved credential and never revokes an environment override.
 | Setting | Flag | Environment variable |
 | --- | --- | --- |
 | API origin | `--api-url` | `ADAPT_API_URL` |
-| Profile (default: `default`) | `--profile` | `ADAPT_PROFILE` |
+| Profile (default: `default`; the flag overrides the variable) | `--profile` | `ADAPT_PROFILE` |
 | Organization for this request | `--org` | `ADAPT_ORG_ID` |
 | Bearer token | Use stdin to import | `ADAPT_TOKEN` |
 | Configuration directory | `--config-dir` | `ADAPT_CONFIG_DIR` |

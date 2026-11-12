@@ -36,8 +36,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         )
     {
         eprintln!(
-            "Warning: profile '{}' does not exist; using defaults. Run `adapt profiles` to list saved profiles or `adapt --profile {} auth login` to create it.",
-            output::safe(&cli.profile),
+            "Warning: profile '{}' does not exist; using defaults. Run `adapt profiles` to list saved profiles or `adapt --profile <name> auth login` to create one.",
             output::safe(&cli.profile)
         );
     }

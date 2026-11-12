@@ -846,6 +846,9 @@ fn missing_profile_warns_whether_named_by_flag_or_env() {
             stderr.contains("profile 'ghost' does not exist"),
             "{stderr}"
         );
+        // The copyable hint must not embed the unquoted, user-controlled name.
+        assert!(!stderr.contains("--profile ghost"), "{stderr}");
+        assert!(stderr.contains("--profile <name> auth login"), "{stderr}");
     }
 }
 

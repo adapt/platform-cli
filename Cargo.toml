@@ -3,6 +3,7 @@ name = "platform-cli"
 version = "0.1.0"
 edition = "2024"
 description = "The user-facing CLI for Adapt Platform"
+license = "MIT"
 publish = false
 
 [[bin]]

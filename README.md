@@ -1,6 +1,6 @@
 # Platform CLI
 
-`adapt` is the Rust command-line client for [Adapt Platform](https://github.com/adapt/platform).
+`adapt` is the Rust command-line client for [Adapt Platform](https://platform.adapt.com).
 It covers the user-facing resource API, account and organization management, browser login,
 execution streams, and file transfers. No Platform backend changes are required.
 
@@ -379,3 +379,7 @@ checks auth polling and revocation, credential isolation, request contracts, pag
 idempotency, binary transfers, SSE reconnection, and WebSocket input/output. CI runs on
 Linux, macOS, and Windows. A real browser sign-in still requires a running Platform
 deployment with its device-auth migration and identity providers configured.
+
+## License
+
+Licensed under the [MIT License](LICENSE).

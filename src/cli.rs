@@ -7,7 +7,7 @@ use uuid::Uuid;
 #[command(
     name = "adapt",
     version,
-    about = "Your Platform, from the terminal.",
+    about = "Adapt Platform CLI",
     after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details."
 )]
 pub struct Cli {

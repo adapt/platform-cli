@@ -1,8 +1,8 @@
-# Platform CLI
+# Adapt Platform CLI
 
 `adapt` is the Rust command-line client for [Adapt Platform](https://platform.adapt.com).
 It covers the user-facing resource API, account and organization management, browser login,
-execution streams, and file transfers. No Platform backend changes are required.
+execution streams, and file transfers.
 
 ## Install and sign in
 

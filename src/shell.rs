@@ -81,7 +81,7 @@ async fn session(api: &Api, id: Uuid, argv: Vec<String>, json_output: bool) -> R
     execute(
         api,
         ExecArgs {
-            sandbox: id,
+            sandbox: id.into(),
             cwd: None,
             env: vec![],
             // The API's ordinary command default is ten minutes. An interactive

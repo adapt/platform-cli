@@ -1,10 +1,58 @@
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use std::{
+    fmt,
     fs::File,
     io::{self, Read},
     path::Path,
+    str::FromStr,
 };
+use uuid::Uuid;
+
+/// A full resource ID or a prefix whose uniqueness is checked by Platform.
+#[derive(Clone, Debug)]
+pub struct ResourceRef(String);
+
+impl ResourceRef {
+    pub fn uuid(&self) -> Option<Uuid> {
+        self.0.parse().ok()
+    }
+}
+
+impl From<Uuid> for ResourceRef {
+    fn from(id: Uuid) -> Self {
+        Self(id.to_string())
+    }
+}
+
+impl fmt::Display for ResourceRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for ResourceRef {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if let Ok(id) = value.parse::<Uuid>() {
+            return Ok(id.into());
+        }
+        let compact = value.len() <= 32 && value.bytes().all(|c| c.is_ascii_hexdigit());
+        let hyphenated = value.len() <= 36
+            && value.bytes().enumerate().all(|(i, c)| {
+                if [8, 13, 18, 23].contains(&i) {
+                    c == b'-'
+                } else {
+                    c.is_ascii_hexdigit()
+                }
+            });
+        if value.is_empty() || !(compact || hyphenated) {
+            return Err("Expected a UUID or hexadecimal ID prefix".into());
+        }
+        Ok(Self(value.to_ascii_lowercase()))
+    }
+}
 
 pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 

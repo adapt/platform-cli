@@ -4,6 +4,7 @@ use std::time::Duration;
 use support::*;
 
 mod retries;
+mod sandbox_prefixes;
 mod sandbox_sh;
 
 #[test]

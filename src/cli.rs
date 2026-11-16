@@ -1,4 +1,4 @@
-use crate::input::pair;
+use crate::input::{ResourceRef, pair};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -253,7 +253,8 @@ pub enum SandboxCommand {
     #[command(visible_alias = "ls")]
     List(Page),
     Get {
-        id: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        id: ResourceRef,
     },
     Create(SandboxCreate),
     /// Run a login shell or command in a temporary sandbox, then delete it
@@ -262,21 +263,25 @@ pub enum SandboxCommand {
     )]
     Sh(SandboxShell),
     Start {
-        id: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        id: ResourceRef,
         #[arg(long)]
         wait: bool,
     },
     Stop {
-        id: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        id: ResourceRef,
         #[arg(long)]
         wait: bool,
     },
     Delete {
-        id: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        id: ResourceRef,
     },
     /// Wait for running (or another --status), with a bounded deadline
     Wait {
-        id: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        id: ResourceRef,
         #[arg(long, default_value = "running")]
         status: String,
         #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
@@ -329,7 +334,8 @@ pub struct SandboxCreate {
 
 #[derive(Args)]
 pub struct ExecArgs {
-    pub sandbox: Uuid,
+    /// Full sandbox UUID or an unambiguous ID prefix
+    pub sandbox: ResourceRef,
     #[arg(long)]
     pub cwd: Option<String>,
     #[arg(long = "env", short = 'e', value_parser = pair)]
@@ -381,13 +387,15 @@ pub enum ExecCommand {
 pub enum FileCommand {
     /// Upload local bytes; use - to read stdin
     Put {
-        sandbox: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        sandbox: ResourceRef,
         local: PathBuf,
         remote: String,
     },
     /// Download bytes; use - to write stdout
     Get {
-        sandbox: Uuid,
+        /// Full sandbox UUID or an unambiguous ID prefix
+        sandbox: ResourceRef,
         remote: String,
         local: PathBuf,
         /// Replace an existing local file

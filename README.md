@@ -147,6 +147,22 @@ On Unix, SIGTERM and SIGHUP trigger cleanup too. Cleanup errors report the sandb
 ID and a retry command. Automatic expiry still follows the create options (one hour
 by default); shells have the API's maximum execution timeout of 24 hours.
 
+Sandbox `get`, `start`, `stop`, `delete`, and `wait`, plus `exec` and `files`, accept
+an unambiguous prefix of a sandbox ID:
+
+```sh
+adapt sandbox get a8f731bc
+adapt exec a8f731bc -- uname -a
+```
+
+Platform resolves prefixes within the selected organization, across all non-deleted
+sandboxes. Matching ignores case and accepts UUID hyphens or compact hexadecimal
+prefixes. Multiple matches fail with `409 CONFLICT`; supply more characters.
+Full UUIDs still address deleted sandboxes. Responses and JSON output retain full
+UUIDs, and waits follow the resolved ID. Use full IDs for persistent scripts.
+This requires a Platform API version that supports sandbox ID prefixes. Other
+resource IDs, pagination cursors, and idempotency keys still require full UUIDs.
+
 Create a sandbox, run a command, and open a shell:
 
 ```sh

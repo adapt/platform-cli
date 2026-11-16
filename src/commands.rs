@@ -238,7 +238,7 @@ async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
                 .post(&format!("/v1/sandboxes/{id}/start"), &json!({}))
                 .await?;
             if wait {
-                wait_for(api, "sandboxes", id, "running", 600).await
+                wait_for(api, "sandboxes", resource_id(&result)?, "running", 600).await
             } else {
                 Ok(result)
             }
@@ -248,7 +248,7 @@ async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
                 .post(&format!("/v1/sandboxes/{id}/stop"), &json!({}))
                 .await?;
             if wait {
-                wait_for(api, "sandboxes", id, "stopped", 600).await
+                wait_for(api, "sandboxes", resource_id(&result)?, "stopped", 600).await
             } else {
                 Ok(result)
             }
@@ -326,15 +326,21 @@ pub(crate) fn resource_id(value: &Value) -> Result<Uuid> {
 pub(crate) async fn wait_for(
     api: &Api,
     resource: &str,
-    id: Uuid,
+    id: impl Into<input::ResourceRef>,
     target: &str,
     seconds: u64,
 ) -> Result<Value> {
+    let mut id = id.into();
     eprintln!("Waiting for {id} to become {target}…");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
     tokio::time::timeout_at(deadline, async {
         loop {
             let snapshot = api.get(&format!("/v1/{resource}/{id}")).await?;
+            // Once selected, follow this resource even if the prefix later
+            // becomes ambiguous or the sandbox reaches the deleted state.
+            if id.uuid().is_none() {
+                id = resource_id(&snapshot)?.into();
+            }
             let status = snapshot["status"]
                 .as_str()
                 .context("Resource response has no status")?;
@@ -410,8 +416,16 @@ async fn files(api: &Api, command: FileCommand) -> Result<Value> {
                 .timeout(api.timeout)
                 .send()
                 .await?;
+            let response = api::ensure_success(response).await?;
+            let id = response
+                .headers()
+                .get("X-Sandbox-Id")
+                .map(|value| -> Result<Uuid> { Ok(value.to_str()?.parse()?) })
+                .transpose()?
+                .or_else(|| sandbox.uuid())
+                .context("File upload response is missing the resolved sandbox ID")?;
             api::checked(response).await?;
-            Ok(json!({"uploaded":remote,"sandboxId":sandbox.to_string()}))
+            Ok(json!({"uploaded":remote,"sandboxId":id.to_string()}))
         }
         FileCommand::Get {
             sandbox,

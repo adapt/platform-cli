@@ -96,7 +96,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
                 (identity, Some(auth::organizations(&authenticated).await?))
             };
             let selected = match organizations {
-                Some(orgs) => auth::select_organization(&orgs, cli.org.as_ref().map(|id| id.to_string()).as_deref(), !cli.json).await?,
+                Some(orgs) => auth::select_organization(&orgs, cli.org.as_ref().map(auth::OrganizationSelector::Id), !cli.json).await?,
                 None => identity["organizationId"].as_str().map(str::to_owned),
             };
             authenticated.organization = selected.clone();
@@ -132,7 +132,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
             OrgCommand::List => Value::Array(auth::organizations(&api).await?),
             OrgCommand::Use { organization } => {
                 let organizations = auth::organizations(&api).await?;
-                let selected = auth::select_organization(&organizations, Some(&organization), false).await?.context("No organization selected")?;
+                let selected = auth::select_organization(&organizations, Some(auth::OrganizationSelector::IdOrSlug(&organization)), false).await?.context("No organization selected")?;
                 let profile = config.profiles.entry(cli.profile.clone()).or_default();
                 if !same_origin { profile.credential = None; }
                 profile.api_url = origin.to_string();

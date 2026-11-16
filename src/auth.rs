@@ -183,15 +183,27 @@ pub async fn organizations(api: &Api) -> Result<Vec<Value>> {
         .context("Invalid organization list")
 }
 
+pub enum OrganizationSelector<'a> {
+    Id(&'a crate::input::ResourceRef),
+    IdOrSlug(&'a str),
+}
+
 pub async fn select_organization(
     organizations: &[Value],
-    requested: Option<&str>,
+    requested: Option<OrganizationSelector<'_>>,
     interactive: bool,
 ) -> Result<Option<String>> {
-    if let Some(wanted) = requested {
+    if let Some(requested) = requested {
+        let (wanted, allow_slug) = match requested {
+            OrganizationSelector::Id(id) => (id.to_string(), false),
+            OrganizationSelector::IdOrSlug(value) => (value.to_owned(), true),
+        };
         if let Some(id) = organizations
             .iter()
-            .find(|o| o["id"].as_str() == Some(wanted) || o["slug"].as_str() == Some(wanted))
+            .find(|o| {
+                o["id"].as_str() == Some(wanted.as_str())
+                    || (allow_slug && o["slug"].as_str() == Some(wanted.as_str()))
+            })
             .and_then(|o| o["id"].as_str())
         {
             return Ok(Some(id.to_owned()));
@@ -285,28 +297,36 @@ mod organization_reference_tests {
             json!({"id":"abcdef02-0000-4000-8000-000000000002","slug":"abcdef"}),
         ];
         assert_eq!(
-            select_organization(&orgs, Some("ABCDEF01"), false)
-                .await
-                .unwrap(),
+            select_organization(
+                &orgs,
+                Some(OrganizationSelector::IdOrSlug("ABCDEF01")),
+                false
+            )
+            .await
+            .unwrap(),
             orgs[0]["id"].as_str().map(str::to_owned)
         );
         assert_eq!(
-            select_organization(&orgs, Some("abcdef"), false)
+            select_organization(&orgs, Some(OrganizationSelector::IdOrSlug("abcdef")), false)
                 .await
                 .unwrap(),
             orgs[1]["id"].as_str().map(str::to_owned)
         );
         assert!(
-            select_organization(&orgs, Some("abc"), false)
+            select_organization(&orgs, Some(OrganizationSelector::IdOrSlug("abc")), false)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains("Ambiguous")
         );
         assert!(
-            select_organization(&orgs, Some("ffffffff"), false)
-                .await
-                .is_err()
+            select_organization(
+                &orgs,
+                Some(OrganizationSelector::IdOrSlug("ffffffff")),
+                false
+            )
+            .await
+            .is_err()
         );
     }
 }

@@ -1,3 +1,4 @@
+use crate::input::ResourceRef;
 use crate::{
     api::{Api, ApiError, ensure_success},
     output,
@@ -107,7 +108,17 @@ async fn sse(
     bail!("Event stream disconnected before completion")
 }
 
-pub async fn logs(api: &Api, id: Uuid, mut cursor: u64, json_output: bool) -> Result<u8> {
+pub async fn logs(
+    api: &Api,
+    id: impl Into<ResourceRef>,
+    mut cursor: u64,
+    json_output: bool,
+) -> Result<u8> {
+    let reference = id.into();
+    let id = match reference.uuid() {
+        Some(id) => id,
+        None => crate::commands::resource_id(&api.get(&format!("/v1/execs/{reference}")).await?)?,
+    };
     for attempt in 0..=4 {
         let path = format!("/v1/execs/{id}/events?cursor={cursor}");
         let result = sse(api, &path, |event| {
@@ -233,12 +244,13 @@ impl Drop for RawMode {
 
 pub async fn attach(
     api: &Api,
-    id: Uuid,
+    id: impl Into<ResourceRef>,
     after: u64,
     input: bool,
     tty: bool,
     json_output: bool,
 ) -> Result<u8> {
+    let id = id.into();
     if !api.authenticated {
         bail!("Run `adapt auth login` first");
     }

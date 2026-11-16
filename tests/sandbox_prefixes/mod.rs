@@ -172,7 +172,7 @@ fn ambiguous_and_missing_prefixes_report_api_errors() {
 }
 
 #[test]
-fn invalid_references_and_non_sandbox_prefixes_are_rejected_locally() {
+fn invalid_references_cursors_and_idempotency_keys_are_rejected_locally() {
     let dir = tempfile::tempdir().unwrap();
     for reference in [
         "",
@@ -194,8 +194,6 @@ fn invalid_references_and_non_sandbox_prefixes_are_rejected_locally() {
         assert_eq!(output.status.code(), Some(2), "{reference:?}");
     }
     for args in [
-        vec!["volumes", "get", "11111111"],
-        vec!["execs", "get", "11111111"],
         vec!["sandbox", "list", "--cursor", "11111111"],
         vec!["exec", ID, "--idempotency-key", "11111111", "--", "true"],
     ] {

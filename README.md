@@ -147,21 +147,28 @@ On Unix, SIGTERM and SIGHUP trigger cleanup too. Cleanup errors report the sandb
 ID and a retry command. Automatic expiry still follows the create options (one hour
 by default); shells have the API's maximum execution timeout of 24 hours.
 
-Sandbox `get`, `start`, `stop`, `delete`, and `wait`, plus `exec` and `files`, accept
-an unambiguous prefix of a sandbox ID:
+Resource selectors accept a full UUID or an unambiguous ID prefix, including
+sandboxes, executions, images, registries, volumes, endpoints, variable sets,
+connections, members, invitations, keys, and sessions. This includes references
+such as `--image-id`, `--credential`, and both IDs in an endpoint binding:
 
 ```sh
 adapt sandbox get a8f731bc
-adapt exec a8f731bc -- uname -a
+adapt images get b29f104e
+adapt endpoints bind c31ab902 a8f731bc --port 8080
+adapt sandbox create --image-id b29f104e --variable-set d48ae102
 ```
 
-Platform resolves prefixes within the selected organization, across all non-deleted
-sandboxes. Matching ignores case and accepts UUID hyphens or compact hexadecimal
-prefixes. Multiple matches fail with `409 CONFLICT`; supply more characters.
-Full UUIDs still address deleted sandboxes. Responses and JSON output retain full
-UUIDs, and waits follow the resolved ID. Use full IDs for persistent scripts.
-This requires a Platform API version that supports sandbox ID prefixes. Other
-resource IDs, pagination cursors, and idempotency keys still require full UUIDs.
+Platform resolves prefixes within the caller's authorized scope and selected
+organization. Matching ignores case and accepts UUID hyphens or compact hex.
+Multiple matches fail with `409 CONFLICT`; supply more characters. Prefixes
+exclude deleted resources; full IDs preserve access to retained history.
+Responses retain full UUIDs, and waits and log reconnects follow the resolved ID.
+Use full IDs in persistent scripts. `org use` also accepts an exact organization
+slug, which takes precedence over a prefix.
+
+This requires a Platform API version with resource ID prefix support. Pagination
+cursors, idempotency keys, and credential tokens still require their exact values.
 
 Create a sandbox, run a command, and open a shell:
 

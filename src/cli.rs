@@ -8,7 +8,7 @@ use uuid::Uuid;
     name = "adapt",
     version,
     about = "Adapt Platform CLI",
-    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details."
+    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details.\nResource IDs accept full UUIDs or unambiguous hexadecimal prefixes."
 )]
 pub struct Cli {
     /// Saved connection profile
@@ -17,9 +17,9 @@ pub struct Cli {
     /// Platform API origin (defaults to https://platform.adapt.com)
     #[arg(long, global = true, env = "ADAPT_API_URL")]
     pub api_url: Option<String>,
-    /// Organization ID for this request
+    /// Organization UUID or unambiguous ID prefix for this request
     #[arg(long, global = true, env = "ADAPT_ORG_ID")]
-    pub org: Option<Uuid>,
+    pub org: Option<ResourceRef>,
     /// Emit JSON (also the default when stdout is piped)
     #[arg(long, global = true)]
     pub json: bool,
@@ -178,7 +178,7 @@ pub struct Creation {
 pub enum OrgCommand {
     #[command(visible_alias = "ls")]
     List,
-    /// Select by organization ID or exact slug
+    /// Select by organization ID, unambiguous ID prefix, or exact slug
     Use {
         organization: String,
     },
@@ -207,7 +207,7 @@ pub enum MemberCommand {
         offset: u64,
     },
     Role {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(value_enum)]
         role: Role,
     },
@@ -238,13 +238,13 @@ pub enum InvitationCommand {
         resend: bool,
     },
     Cancel {
-        id: Uuid,
+        id: ResourceRef,
     },
     Accept {
-        id: Uuid,
+        id: ResourceRef,
     },
     Reject {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 
@@ -306,7 +306,7 @@ pub struct SandboxCreate {
     #[arg(long, conflicts_with = "image_id")]
     pub image: Option<String>,
     #[arg(long, conflicts_with = "image")]
-    pub image_id: Option<Uuid>,
+    pub image_id: Option<ResourceRef>,
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=32))]
     pub cpu: Option<u8>,
     #[arg(long, value_parser = clap::value_parser!(u32).range(128..=65536))]
@@ -322,7 +322,7 @@ pub struct SandboxCreate {
     #[arg(long = "label", value_parser = pair)]
     pub labels: Vec<(String, String)>,
     #[arg(long)]
-    pub variable_set: Vec<Uuid>,
+    pub variable_set: Vec<ResourceRef>,
     /// Run the image's ENTRYPOINT/CMD on boot
     #[arg(long)]
     pub run_image: bool,
@@ -360,20 +360,20 @@ pub struct ExecArgs {
 #[derive(Subcommand)]
 pub enum ExecCommand {
     Get {
-        id: Uuid,
+        id: ResourceRef,
     },
     Cancel {
-        id: Uuid,
+        id: ResourceRef,
     },
     /// Stream retained, redacted logs, resuming after --cursor
     Logs {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=4096))]
         cursor: u64,
     },
     /// Attach to unredacted live output (read-only unless --stdin or --tty)
     Attach {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(long, default_value_t = 0)]
         after: u64,
         #[arg(short = 'i', long)]
@@ -409,7 +409,7 @@ pub enum VolumeCommand {
     #[command(visible_alias = "ls")]
     List(Page),
     Get {
-        id: Uuid,
+        id: ResourceRef,
     },
     Create {
         #[arg(long)]
@@ -418,7 +418,7 @@ pub enum VolumeCommand {
         creation: Creation,
     },
     Quota {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(
             long,
             required_unless_present = "unlimited",
@@ -430,7 +430,7 @@ pub enum VolumeCommand {
     },
     /// Request deletion (the current backend returns unsupported for ready volumes)
     Delete {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 
@@ -445,7 +445,7 @@ pub enum EndpointCommand {
     #[command(visible_alias = "ls")]
     List(Page),
     Get {
-        id: Uuid,
+        id: ResourceRef,
     },
     Create {
         name: String,
@@ -455,27 +455,27 @@ pub enum EndpointCommand {
         creation: Creation,
     },
     Access {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(value_enum)]
         access: Access,
     },
     Bind {
-        id: Uuid,
-        sandbox: Uuid,
+        id: ResourceRef,
+        sandbox: ResourceRef,
         #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
         port: u16,
     },
     Unbind {
-        id: Uuid,
+        id: ResourceRef,
     },
     Token {
-        id: Uuid,
+        id: ResourceRef,
     },
     RevokeTokens {
-        id: Uuid,
+        id: ResourceRef,
     },
     Delete {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 
@@ -490,7 +490,7 @@ pub enum ImageCommand {
     #[command(visible_alias = "ls")]
     List(Page),
     Get {
-        id: Uuid,
+        id: ResourceRef,
     },
     Import {
         source: String,
@@ -499,16 +499,16 @@ pub enum ImageCommand {
         #[arg(long, value_enum, default_value = "amd64")]
         architecture: Architecture,
         #[arg(long)]
-        credential: Option<Uuid>,
+        credential: Option<ResourceRef>,
         #[arg(long)]
         wait: bool,
         #[command(flatten)]
         creation: Creation,
     },
     Pull {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(long, conflicts_with = "public")]
-        credential: Option<Uuid>,
+        credential: Option<ResourceRef>,
         #[arg(long)]
         public: bool,
         #[arg(long)]
@@ -517,12 +517,12 @@ pub enum ImageCommand {
         creation: Creation,
     },
     Wait {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
         wait_timeout: u64,
     },
     Delete {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 
@@ -531,18 +531,18 @@ pub enum EnvCommand {
     #[command(visible_alias = "ls")]
     List(Page),
     Get {
-        id: Uuid,
+        id: ResourceRef,
     },
     /// JSON: {"name":"production","env":{"KEY":"value"}}
     Create(Data),
     /// JSON: {"name":"production","version":1,"env":{"KEY":null}}; null deletes a variable
     Update {
-        id: Uuid,
+        id: ResourceRef,
         #[command(flatten)]
         data: Data,
     },
     Delete {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 
@@ -554,12 +554,12 @@ pub enum RegistryCommand {
     Create(Data),
     /// Same fields as create, plus the current version
     Update {
-        id: Uuid,
+        id: ResourceRef,
         #[command(flatten)]
         data: Data,
     },
     Delete {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 
@@ -568,42 +568,42 @@ pub enum ConnectionCommand {
     #[command(visible_alias = "ls")]
     List(Page),
     Get {
-        id: Uuid,
+        id: ResourceRef,
     },
     /// JSON: name, url, authType (none/bearer/oauth), optional token and visibility
     Create(Data),
     /// JSON: version, name, enabled, allowedTools, optional token
     Update {
-        id: Uuid,
+        id: ResourceRef,
         #[command(flatten)]
         data: Data,
     },
     Delete {
-        id: Uuid,
+        id: ResourceRef,
     },
     Refresh {
-        id: Uuid,
+        id: ResourceRef,
     },
     /// JSON: principalType (mcp/apiKey), principalId, tools
     Grant {
-        id: Uuid,
+        id: ResourceRef,
         #[command(flatten)]
         data: Data,
     },
     /// Open upstream authorization in a browser
     Oauth {
-        id: Uuid,
+        id: ResourceRef,
         #[arg(long)]
         no_browser: bool,
     },
     /// Complete upstream authorization with JSON: code, state, optional iss
     OauthComplete {
-        id: Uuid,
+        id: ResourceRef,
         #[command(flatten)]
         data: Data,
     },
     Calls {
-        id: Uuid,
+        id: ResourceRef,
         #[command(flatten)]
         page: Page,
     },
@@ -615,11 +615,11 @@ pub enum ConnectionCommand {
         offset: u32,
     },
     Describe {
-        connection: Uuid,
+        connection: ResourceRef,
         tool: String,
     },
     Call {
-        connection: Uuid,
+        connection: ResourceRef,
         tool: String,
         /// Tool argument object: inline JSON, @file, or -
         #[arg(long, default_value = "{}")]
@@ -653,7 +653,7 @@ pub enum SessionCommand {
     #[command(visible_alias = "ls")]
     List,
     Revoke {
-        id: Uuid,
+        id: ResourceRef,
     },
     RevokeOthers,
 }
@@ -663,7 +663,7 @@ pub enum McpCommand {
     #[command(visible_alias = "ls")]
     List,
     Revoke {
-        id: Uuid,
+        id: ResourceRef,
     },
 }
 

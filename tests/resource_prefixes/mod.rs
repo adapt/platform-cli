@@ -150,3 +150,130 @@ fn image_wait_and_execution_logs_pin_canonical_ids() {
     );
     server.finish();
 }
+
+fn login_steps(organizations: serde_json::Value) -> Vec<Handler> {
+    vec![
+        Box::new(|r| {
+            assert_eq!(r.target, "/v1/auth/device/code");
+            crate::device_response()
+        }),
+        Box::new(|r| {
+            assert_eq!(r.target, "/v1/auth/device/token");
+            assert!(!r.headers.contains_key("authorization"));
+            Reply::json(
+                200,
+                json!({"access_token":"new-session-secret","token_type":"Bearer","expires_in":3600}),
+            )
+        }),
+        Box::new(|r| {
+            assert_eq!(r.target, "/v1/auth/get-session");
+            assert_eq!(r.headers["authorization"], "Bearer new-session-secret");
+            Reply::json(
+                200,
+                json!({"user":{"email":"alice@example.com"},"session":{"id":ID}}),
+            )
+        }),
+        Box::new(move |r| {
+            assert_eq!(r.target, "/v1/auth/organization/list");
+            assert_eq!(r.headers["authorization"], "Bearer new-session-secret");
+            Reply::json(200, organizations)
+        }),
+    ]
+}
+
+#[test]
+fn login_org_selectors_ignore_slugs_and_persist_the_matching_id() {
+    const SELECTED: &str = "abcdef01-1111-4111-8111-111111111111";
+    for (reference, from_env) in [("ABCDEF01", false), (SELECTED, false), ("abcdef01", true)] {
+        let mut steps = login_steps(json!([
+            {"id":ORG,"name":"Slug collision","slug":reference.to_ascii_lowercase()},
+            {"id":SELECTED,"name":"Selected by ID","slug":"selected"}
+        ]));
+        steps.push(Box::new(|r| {
+            assert_eq!(r.target, "/v1/whoami");
+            assert_eq!(r.headers["x-organization-id"], SELECTED);
+            assert_eq!(r.headers["authorization"], "Bearer new-session-secret");
+            Reply::json(200, json!({"organizationId":SELECTED}))
+        }));
+        let server = Server::start(steps);
+        let dir = tempfile::tempdir().unwrap();
+        let mut login = command(dir.path(), &server.url);
+        login.args(["auth", "login", "--no-browser"]);
+        if from_env {
+            login.env("ADAPT_ORG_ID", reference);
+        } else {
+            login.args(["--org", reference]);
+        }
+        assert_eq!(
+            success(&login.output().unwrap())["organizationId"],
+            SELECTED
+        );
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap())
+                .unwrap();
+        assert_eq!(saved["profiles"]["default"]["organization_id"], SELECTED);
+        success(
+            &command(dir.path(), &server.url)
+                .arg("whoami")
+                .output()
+                .unwrap(),
+        );
+        server.finish();
+    }
+}
+
+#[test]
+fn login_org_selectors_do_not_use_slugs_to_bypass_missing_or_ambiguous_ids() {
+    for (organizations, message) in [
+        (
+            json!([
+                {"id":"abcdef01-1111-4111-8111-111111111111","slug":"first"},
+                {"id":"abcdef01-2222-4222-8222-222222222222","slug":"second"},
+                {"id":ORG,"slug":"abcdef01"}
+            ]),
+            "Ambiguous organization ID",
+        ),
+        (
+            json!([{"id":ORG,"slug":"abcdef01"}]),
+            "That organization is not available",
+        ),
+    ] {
+        let server = Server::start(login_steps(organizations));
+        let dir = tempfile::tempdir().unwrap();
+        let output = command(dir.path(), &server.url)
+            .args(["auth", "login", "--no-browser", "--org", "abcdef01"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(message), "{stderr}");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap())
+                .unwrap();
+        assert!(saved["profiles"]["default"]["organization_id"].is_null());
+        assert_eq!(
+            saved["profiles"]["default"]["credential"]["token"],
+            "new-session-secret"
+        );
+        server.finish();
+    }
+}
+
+#[test]
+fn org_use_still_prefers_an_exact_slug_to_an_id_prefix() {
+    let server = Server::start(vec![step(
+        "GET",
+        "/v1/auth/organization/list".into(),
+        None,
+        json!([
+            {"id":"abcdef01-1111-4111-8111-111111111111","slug":"first"},
+            {"id":ORG,"slug":"abcdef01"}
+        ]),
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        success(&run(dir.path(), &server.url, &["org", "use", "abcdef01"]))["organizationId"],
+        ORG
+    );
+    server.finish();
+}

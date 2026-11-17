@@ -4,3 +4,4 @@ __pycache__/
 gha-creds-*.json
 /.tmp/
 .DS_Store
+.claude

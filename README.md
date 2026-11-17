@@ -311,6 +311,8 @@ JSON and reports disconnections; reconnecting yields a reset event, so refresh s
 adapt sandbox list --all --json
 adapt sandbox list --limit 50 --cursor CURSOR
 adapt sandbox list --query web --all
+adapt images list --status ready
+adapt images list --name ubuntu --all
 adapt api GET /v1/whoami
 adapt api GET /openapi.json
 adapt api POST /v1/auth/update-user --data '{"name":"New name"}'
@@ -321,6 +323,12 @@ or whose ID starts with TEXT. The filter applies to every page `--all` fetches. 
 by hand, pass the same `--query` with each `--cursor`. The table has no name column because
 the name is stored in the `labels.name` label, so it doesn't show which name matched. Add
 `--json` to see names.
+
+`images list --name NAME` shows every version of the image named exactly NAME (the match
+is case-sensitive), and `--status` limits the list to `preparing`, `ready`, `failed`, or
+`deleting` images. Use both to list, say, only the ready versions of one image. Like
+`--query`, these filters apply to every page `--all` fetches; pass them again with each
+`--cursor` when paging by hand.
 
 Resource lists support cursor pagination with `--all`. Gateway connections and call
 history have a server-defined page size; omit `--limit` there. Member and API-key lists

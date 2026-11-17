@@ -183,46 +183,18 @@ pub async fn organizations(api: &Api) -> Result<Vec<Value>> {
         .context("Invalid organization list")
 }
 
-pub enum OrganizationSelector<'a> {
-    Id(&'a crate::input::ResourceRef),
-    IdOrSlug(&'a str),
-}
-
 pub async fn select_organization(
     organizations: &[Value],
-    requested: Option<OrganizationSelector<'_>>,
+    requested: Option<&str>,
     interactive: bool,
 ) -> Result<Option<String>> {
-    if let Some(requested) = requested {
-        let (wanted, allow_slug) = match requested {
-            OrganizationSelector::Id(id) => (id.to_string(), false),
-            OrganizationSelector::IdOrSlug(value) => (value.to_owned(), true),
-        };
-        if let Some(id) = organizations
+    if let Some(wanted) = requested {
+        return organizations
             .iter()
-            .find(|o| {
-                o["id"].as_str() == Some(wanted.as_str())
-                    || (allow_slug && o["slug"].as_str() == Some(wanted.as_str()))
-            })
+            .find(|o| o["id"].as_str() == Some(wanted) || o["slug"].as_str() == Some(wanted))
             .and_then(|o| o["id"].as_str())
-        {
-            return Ok(Some(id.to_owned()));
-        }
-        if let Ok(reference) = wanted.parse::<crate::input::ResourceRef>() {
-            let prefix = reference.to_string().replace('-', "");
-            let matches: Vec<_> = organizations
-                .iter()
-                .filter_map(|o| o["id"].as_str())
-                .filter(|id| id.replace('-', "").starts_with(&prefix))
-                .collect();
-            if matches.len() > 1 {
-                anyhow::bail!("Ambiguous organization ID; supply more characters");
-            }
-            if let Some(id) = matches.first() {
-                return Ok(Some((*id).to_owned()));
-            }
-        }
-        anyhow::bail!("That organization is not available to this account");
+            .map(|id| Some(id.to_owned()))
+            .context("That organization is not available to this account");
     }
     if organizations.len() == 1 {
         return Ok(organizations[0]["id"].as_str().map(str::to_owned));
@@ -284,49 +256,5 @@ pub async fn revoke(api: &Api) -> Result<()> {
         Ok(_) => Ok(()),
         Err(error) if error.downcast_ref::<ApiError>().is_some_and(|e| e.status.as_u16() == 401) => Ok(()),
         Err(error) => Err(error).context("Could not revoke the session; credential kept so you can retry. Use --local to remove it without revoking"),
-    }
-}
-
-#[cfg(test)]
-mod organization_reference_tests {
-    use super::*;
-    #[tokio::test]
-    async fn resolves_prefixes_and_preserves_exact_slug_precedence() {
-        let orgs = vec![
-            json!({"id":"abcdef01-0000-4000-8000-000000000001","slug":"first"}),
-            json!({"id":"abcdef02-0000-4000-8000-000000000002","slug":"abcdef"}),
-        ];
-        assert_eq!(
-            select_organization(
-                &orgs,
-                Some(OrganizationSelector::IdOrSlug("ABCDEF01")),
-                false
-            )
-            .await
-            .unwrap(),
-            orgs[0]["id"].as_str().map(str::to_owned)
-        );
-        assert_eq!(
-            select_organization(&orgs, Some(OrganizationSelector::IdOrSlug("abcdef")), false)
-                .await
-                .unwrap(),
-            orgs[1]["id"].as_str().map(str::to_owned)
-        );
-        assert!(
-            select_organization(&orgs, Some(OrganizationSelector::IdOrSlug("abc")), false)
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("Ambiguous")
-        );
-        assert!(
-            select_organization(
-                &orgs,
-                Some(OrganizationSelector::IdOrSlug("ffffffff")),
-                false
-            )
-            .await
-            .is_err()
-        );
     }
 }

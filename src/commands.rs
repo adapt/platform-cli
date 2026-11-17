@@ -54,7 +54,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
             .flatten()
             .map(|c| c.token.as_str())
     });
-    let organization = cli.org.as_ref().map(|id| id.to_string()).or_else(|| {
+    let organization = cli.org.map(|id| id.to_string()).or_else(|| {
         same_origin
             .then_some(saved.organization_id.clone())
             .flatten()
@@ -82,7 +82,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
                 if token.is_empty() { bail!("No API key received on stdin"); }
                 Credential { token, kind: CredentialKind::ApiKey, expires_at: None }
             } else { auth::device_login(&anonymous, no_browser).await? };
-            let mut authenticated = Api::new(origin.clone(), Some(&credential.token), cli.org.as_ref().map(|id| id.to_string()), api.timeout)?;
+            let mut authenticated = Api::new(origin.clone(), Some(&credential.token), cli.org.map(|id| id.to_string()), api.timeout)?;
             let (identity, organizations) = if credential.kind == CredentialKind::ApiKey {
                 let identity = authenticated.get("/v1/whoami").await?;
                 if identity["type"] != "apiKey" { bail!("--token-stdin expects an organization API key; use browser login for user sessions"); }
@@ -96,7 +96,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
                 (identity, Some(auth::organizations(&authenticated).await?))
             };
             let selected = match organizations {
-                Some(orgs) => auth::select_organization(&orgs, cli.org.as_ref().map(auth::OrganizationSelector::Id), !cli.json).await?,
+                Some(orgs) => auth::select_organization(&orgs, cli.org.map(|id| id.to_string()).as_deref(), !cli.json).await?,
                 None => identity["organizationId"].as_str().map(str::to_owned),
             };
             authenticated.organization = selected.clone();
@@ -132,7 +132,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
             OrgCommand::List => Value::Array(auth::organizations(&api).await?),
             OrgCommand::Use { organization } => {
                 let organizations = auth::organizations(&api).await?;
-                let selected = auth::select_organization(&organizations, Some(auth::OrganizationSelector::IdOrSlug(&organization)), false).await?.context("No organization selected")?;
+                let selected = auth::select_organization(&organizations, Some(&organization), false).await?.context("No organization selected")?;
                 let profile = config.profiles.entry(cli.profile.clone()).or_default();
                 if !same_origin { profile.credential = None; }
                 profile.api_url = origin.to_string();

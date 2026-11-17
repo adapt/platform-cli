@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use support::*;
 
+mod image_list;
 mod resource_prefixes;
 mod retries;
 mod sandbox_list;

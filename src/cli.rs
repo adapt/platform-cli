@@ -1,4 +1,4 @@
-use crate::input::{ResourceRef, pair, search_text};
+use crate::input::{ResourceRef, image_name, pair, search_text};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -497,7 +497,7 @@ pub enum Architecture {
 #[derive(Subcommand)]
 pub enum ImageCommand {
     #[command(visible_alias = "ls")]
-    List(Page),
+    List(ImageList),
     Get {
         id: ResourceRef,
     },
@@ -533,6 +533,27 @@ pub enum ImageCommand {
     Delete {
         id: ResourceRef,
     },
+}
+
+#[derive(Args)]
+pub struct ImageList {
+    /// Show only images named exactly NAME (case-sensitive): every version of one image
+    #[arg(long, value_name = "NAME", value_parser = image_name)]
+    pub name: Option<String>,
+    /// Show only images in this state
+    #[arg(long, value_enum)]
+    pub status: Option<ImageStatus>,
+    #[command(flatten)]
+    pub page: Page,
+}
+
+/// Image states Platform can filter by; deleted images are never listed.
+#[derive(Clone, Copy, ValueEnum)]
+pub enum ImageStatus {
+    Preparing,
+    Ready,
+    Failed,
+    Deleting,
 }
 
 #[derive(Subcommand)]

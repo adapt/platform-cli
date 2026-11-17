@@ -1,7 +1,8 @@
 # API coverage
 
 Based on the resource OpenAPI document from `../platform` at `f20ded3`, plus its dashboard
-auth integrations. The `query` filter on `GET /v1/sandboxes` comes from platform `2396647`.
+auth integrations. The `query` filter on `GET /v1/sandboxes` and the `name` and `status`
+filters on `GET /v1/images` come from platform `2396647`.
 Every resource operation has a named command. `adapt api METHOD PATH`
 also exposes same-origin JSON requests for less common account operations.
 
@@ -44,7 +45,7 @@ one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
 | `POST /v1/ingresses/{id}/access-tokens` | `endpoints token ID` |
 | `DELETE /v1/ingresses/{id}/access-tokens` | `endpoints revoke-tokens ID` |
 | `POST /v1/images` | `images import SOURCE --name NAME` |
-| `GET /v1/images` | `images list` |
+| `GET /v1/images` | `images list [--name NAME] [--status STATUS]` |
 | `GET /v1/images/{id}` | `images get ID` |
 | `POST /v1/images/{id}/pull` | `images pull ID` |
 | `DELETE /v1/images/{id}` | `images delete ID` |

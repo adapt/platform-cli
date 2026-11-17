@@ -162,6 +162,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         Command::Files(command) => files(&api, command).await?,
         Command::Volumes(command) => volumes(&api, command).await?,
         Command::Endpoints(command) => endpoints(&api, command).await?,
+        Command::Images(ImageCommand::List(args)) => return list_images(&api, args, cli.json).await,
         Command::Images(command) => images(&api, command).await?,
         Command::Env(command) => match command {
             EnvCommand::List(page) => api.list("/v1/environment-variable-sets", "sets", &page, true, &[]).await?,
@@ -235,13 +236,67 @@ async fn list_sandboxes(api: &Api, args: SandboxList, json: bool) -> Result<u8> 
         .iter()
         .map(|text| ("query".to_owned(), text.clone()))
         .collect();
-    let result = api
-        .list("/v1/sandboxes", "sandboxes", &args.page, true, &filters)
-        .await?;
-    if let Some(text) = &args.query
-        && result["sandboxes"].as_array().is_some_and(Vec::is_empty)
+    let no_match = args
+        .query
+        .map(|text| format!("No sandboxes match \"{}\".", output::safe(&text)));
+    filtered_list(
+        api,
+        "/v1/sandboxes",
+        "sandboxes",
+        &args.page,
+        &filters,
+        no_match,
+        json,
+    )
+    .await
+}
+
+async fn list_images(api: &Api, args: ImageList, json: bool) -> Result<u8> {
+    let status = args.status.map(choice);
+    let mut filters = Vec::new();
+    if let Some(name) = &args.name {
+        filters.push(("name".to_owned(), name.clone()));
+    }
+    if let Some(status) = &status {
+        filters.push(("status".to_owned(), status.clone()));
+    }
+    let no_match = (!filters.is_empty()).then(|| {
+        let mut message = match &status {
+            Some(status) => format!("No {status} images"),
+            None => "No images".to_owned(),
+        };
+        if let Some(name) = &args.name {
+            message += &format!(" named \"{}\"", output::safe(name));
+        }
+        message + "."
+    });
+    filtered_list(
+        api,
+        "/v1/images",
+        "images",
+        &args.page,
+        &filters,
+        no_match,
+        json,
+    )
+    .await
+}
+
+/// Lists a resource with filters that Platform applies to every page. When nothing
+/// matches, `no_match` names the active filters instead of a bare "No results."
+async fn filtered_list(
+    api: &Api,
+    path: &str,
+    field: &str,
+    page: &Page,
+    filters: &[(String, String)],
+    no_match: Option<String>,
+    json: bool,
+) -> Result<u8> {
+    let result = api.list(path, field, page, true, filters).await?;
+    if let Some(message) = no_match
+        && result[field].as_array().is_some_and(Vec::is_empty)
     {
-        let message = format!("No sandboxes match \"{}\".", output::safe(text));
         if output::tables(json) {
             println!("{message}");
             return Ok(0);
@@ -579,7 +634,7 @@ async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
 
 async fn images(api: &Api, command: ImageCommand) -> Result<Value> {
     match command {
-        ImageCommand::List(page) => api.list("/v1/images", "images", &page, true, &[]).await,
+        ImageCommand::List(_) => unreachable!("Image lists are dispatched separately"),
         ImageCommand::Get { id } => api.get(&format!("/v1/images/{id}")).await,
         ImageCommand::Delete { id } => delete(api, &format!("/v1/images/{id}")).await,
         ImageCommand::Wait { id, wait_timeout } => {

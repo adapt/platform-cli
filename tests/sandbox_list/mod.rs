@@ -112,11 +112,41 @@ fn no_matches_is_not_an_error() {
 }
 
 #[test]
+fn query_is_trimmed_like_platform() {
+    // JavaScript's trim removes U+FEFF and keeps U+0085, unlike Rust's str::trim.
+    let server = Server::start(vec![
+        step(
+            "GET",
+            "/v1/sandboxes?limit=50&query=web".into(),
+            None,
+            json!({"sandboxes":[{"id":ID}],"nextCursor":null}),
+        ),
+        step(
+            "GET",
+            "/v1/sandboxes?limit=50&query=%C2%85".into(),
+            None,
+            json!({"sandboxes":[],"nextCursor":null}),
+        ),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    for query in ["\u{FEFF} web\u{FEFF}", "\u{85}"] {
+        success(&run(
+            dir.path(),
+            &server.url,
+            &["sandbox", "list", "--query", query],
+        ));
+    }
+    server.finish();
+}
+
+#[test]
 fn blank_queries_and_unsupported_lists_are_rejected_locally() {
     let dir = tempfile::tempdir().unwrap();
     for args in [
         vec!["sandbox", "list", "--query", ""],
         vec!["sandbox", "list", "--query", "   "],
+        vec!["sandbox", "list", "--query", "\u{FEFF}"],
+        vec!["sandbox", "list", "--query", "\u{FEFF}\t\u{3000}\u{2028} "],
         vec!["volumes", "list", "--query", "web"],
     ] {
         let output = run(dir.path(), "http://localhost:1", &args);

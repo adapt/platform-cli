@@ -5,6 +5,7 @@ use support::*;
 
 mod resource_prefixes;
 mod retries;
+mod sandbox_list;
 mod sandbox_prefixes;
 mod sandbox_sh;
 

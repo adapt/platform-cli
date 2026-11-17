@@ -102,6 +102,15 @@ pub fn pair(value: &str) -> Result<(String, String), String> {
     Ok((key.into(), value.into()))
 }
 
+/// Platform ignores a blank search, which would silently list everything.
+pub fn search_text(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("Search text cannot be empty".into());
+    }
+    Ok(value.into())
+}
+
 pub fn pairs(values: &[(String, String)]) -> Value {
     Value::Object(
         values

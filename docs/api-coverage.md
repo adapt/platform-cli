@@ -1,7 +1,8 @@
 # API coverage
 
 Based on the resource OpenAPI document from `../platform` at `f20ded3`, plus its dashboard
-auth integrations. Every resource operation has a named command. `adapt api METHOD PATH`
+auth integrations. The `query` filter on `GET /v1/sandboxes` comes from platform `2396647`.
+Every resource operation has a named command. `adapt api METHOD PATH`
 also exposes same-origin JSON requests for less common account operations.
 
 `{id}` denotes the corresponding resource ID. Writes requiring an idempotency key receive
@@ -16,7 +17,7 @@ one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
 | `GET /v1/events` | `events` |
 | `GET /v1/auth/events` | `events --personal` |
 | `POST /v1/sandboxes` | `sandbox create` |
-| `GET /v1/sandboxes` | `sandbox list` |
+| `GET /v1/sandboxes` | `sandbox list [--query TEXT]` |
 | `GET /v1/sandboxes/{id}` | `sandbox get ID` |
 | `DELETE /v1/sandboxes/{id}` | `sandbox delete ID` |
 | `POST /v1/sandboxes/{id}/start` | `sandbox start ID` |

@@ -183,6 +183,7 @@ impl Api {
         field: &str,
         page: &Page,
         supports_limit: bool,
+        filters: &[(String, String)],
     ) -> Result<Value> {
         let mut query = Vec::new();
         if supports_limit {
@@ -190,6 +191,8 @@ impl Api {
         } else if page.limit.is_some() {
             bail!("This endpoint has a fixed page size; omit --limit");
         }
+        // Filters apply to every page; following pages replace only the cursor.
+        query.extend_from_slice(filters);
         if let Some(cursor) = page.cursor {
             query.push(("cursor".into(), cursor.to_string()));
         }

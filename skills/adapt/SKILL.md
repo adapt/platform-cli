@@ -45,6 +45,7 @@ to inspect saved connection settings without exposing tokens.
 
 ```sh
 adapt sandbox list --all --json
+adapt sandbox list --query NAME_OR_ID_PREFIX --all --json
 adapt images list --all --json
 adapt sandbox sh --image ubuntu:24.04 -- uname -a
 adapt sandbox sh --image-id IMAGE_ID --cpu 2 --memory 2048 -- /bin/sh -lc 'echo hello; uname -a'

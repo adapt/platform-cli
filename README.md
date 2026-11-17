@@ -310,10 +310,17 @@ JSON and reports disconnections; reconnecting yields a reset event, so refresh s
 ```sh
 adapt sandbox list --all --json
 adapt sandbox list --limit 50 --cursor CURSOR
+adapt sandbox list --query web --all
 adapt api GET /v1/whoami
 adapt api GET /openapi.json
 adapt api POST /v1/auth/update-user --data '{"name":"New name"}'
 ```
+
+`sandbox list --query TEXT` shows only sandboxes whose name contains TEXT (ignoring case)
+or whose ID starts with TEXT. The filter applies to every page `--all` fetches. When paging
+by hand, pass the same `--query` with each `--cursor`. The table has no name column because
+the name is stored in the `labels.name` label, so it doesn't show which name matched. Add
+`--json` to see names.
 
 Resource lists support cursor pagination with `--all`. Gateway connections and call
 history have a server-defined page size; omit `--limit` there. Member and API-key lists

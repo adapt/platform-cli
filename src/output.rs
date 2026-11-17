@@ -2,9 +2,14 @@ use anyhow::Result;
 use serde_json::Value;
 use std::io::{self, IsTerminal, Write};
 
+/// Terminals get tables unless --json is set; pipes always get JSON.
+pub fn tables(json: bool) -> bool {
+    !json && io::stdout().is_terminal()
+}
+
 pub fn print(value: &Value, json: bool) -> Result<()> {
     let mut out = io::stdout().lock();
-    if json || !io::stdout().is_terminal() {
+    if !tables(json) {
         serde_json::to_writer(&mut out, value)?;
         writeln!(out)?;
         return Ok(());
@@ -86,7 +91,10 @@ pub fn print(value: &Value, json: bool) -> Result<()> {
                 )?;
             }
             if let Some(cursor) = value["nextCursor"].as_str() {
-                writeln!(out, "\nNext page: --cursor {cursor} (or use --all)")?;
+                writeln!(
+                    out,
+                    "\nNext page: rerun with --cursor {cursor} (or use --all)"
+                )?;
             }
             return Ok(());
         }

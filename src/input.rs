@@ -102,6 +102,18 @@ pub fn pair(value: &str) -> Result<(String, String), String> {
     Ok((key.into(), value.into()))
 }
 
+/// Platform ignores a blank search, which would silently list everything.
+pub fn search_text(value: &str) -> Result<String, String> {
+    // Platform trims with JavaScript's String.prototype.trim. Its whitespace is
+    // Unicode White_Space without U+0085, plus U+FEFF.
+    let value =
+        value.trim_matches(|c: char| c == '\u{FEFF}' || (c.is_whitespace() && c != '\u{85}'));
+    if value.is_empty() {
+        return Err("Search text cannot be empty".into());
+    }
+    Ok(value.into())
+}
+
 pub fn pairs(values: &[(String, String)]) -> Value {
     Value::Object(
         values

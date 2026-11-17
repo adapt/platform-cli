@@ -1,4 +1,4 @@
-use crate::input::{ResourceRef, pair};
+use crate::input::{ResourceRef, pair, search_text};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -251,7 +251,7 @@ pub enum InvitationCommand {
 #[derive(Subcommand)]
 pub enum SandboxCommand {
     #[command(visible_alias = "ls")]
-    List(Page),
+    List(SandboxList),
     Get {
         /// Full sandbox UUID or an unambiguous ID prefix
         id: ResourceRef,
@@ -287,6 +287,15 @@ pub enum SandboxCommand {
         #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
         wait_timeout: u64,
     },
+}
+
+#[derive(Args)]
+pub struct SandboxList {
+    /// Show only sandboxes whose name contains TEXT (ignoring case) or whose ID starts with TEXT
+    #[arg(long, value_name = "TEXT", value_parser = search_text)]
+    pub query: Option<String>,
+    #[command(flatten)]
+    pub page: Page,
 }
 
 #[derive(Args)]

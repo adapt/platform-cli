@@ -150,6 +150,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
             OrgCommand::Invitations(command) => invitations(&api, command).await?,
         },
         Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(&api, args, cli.json).await,
+        Command::Sandbox(SandboxCommand::List(args)) => return list_sandboxes(&api, args, cli.json).await,
         Command::Sandbox(command) => sandbox(&api, command).await?,
         Command::Exec(args) => return execute(&api, args, cli.json).await,
         Command::Execs(command) => match command {
@@ -163,14 +164,14 @@ pub async fn run(cli: Cli) -> Result<u8> {
         Command::Endpoints(command) => endpoints(&api, command).await?,
         Command::Images(command) => images(&api, command).await?,
         Command::Env(command) => match command {
-            EnvCommand::List(page) => api.list("/v1/environment-variable-sets", "sets", &page, true).await?,
+            EnvCommand::List(page) => api.list("/v1/environment-variable-sets", "sets", &page, true, &[]).await?,
             EnvCommand::Get { id } => api.get(&format!("/v1/environment-variable-sets/{id}")).await?,
             EnvCommand::Create(data) => api.post("/v1/environment-variable-sets", &input::object(Some(&data.data))?).await?,
             EnvCommand::Update { id, data } => put(&api, &format!("/v1/environment-variable-sets/{id}"), input::object(Some(&data.data))?).await?,
             EnvCommand::Delete { id } => delete(&api, &format!("/v1/environment-variable-sets/{id}")).await?,
         },
         Command::Registry(command) => match command {
-            RegistryCommand::List(page) => api.list("/v1/registry-credentials", "credentials", &page, true).await?,
+            RegistryCommand::List(page) => api.list("/v1/registry-credentials", "credentials", &page, true, &[]).await?,
             RegistryCommand::Create(data) => api.post("/v1/registry-credentials", &input::object(Some(&data.data))?).await?,
             RegistryCommand::Update { id, data } => put(&api, &format!("/v1/registry-credentials/{id}"), input::object(Some(&data.data))?).await?,
             RegistryCommand::Delete { id } => delete(&api, &format!("/v1/registry-credentials/{id}")).await?,
@@ -228,9 +229,33 @@ async fn create(api: &Api, path: &str, body: Value, creation: Creation) -> Resul
         })
 }
 
+async fn list_sandboxes(api: &Api, args: SandboxList, json: bool) -> Result<u8> {
+    let filters: Vec<_> = args
+        .query
+        .iter()
+        .map(|text| ("query".to_owned(), text.clone()))
+        .collect();
+    let result = api
+        .list("/v1/sandboxes", "sandboxes", &args.page, true, &filters)
+        .await?;
+    if let Some(text) = &args.query
+        && result["sandboxes"].as_array().is_some_and(Vec::is_empty)
+    {
+        let message = format!("No sandboxes match \"{}\".", output::safe(text));
+        if output::tables(json) {
+            println!("{message}");
+            return Ok(0);
+        }
+        // Scripts still receive the empty JSON envelope on stdout.
+        eprintln!("{message}");
+    }
+    output::print(&result, json)?;
+    Ok(0)
+}
+
 async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
     match command {
-        SandboxCommand::List(page) => api.list("/v1/sandboxes", "sandboxes", &page, true).await,
+        SandboxCommand::List(_) => unreachable!("Sandbox lists are dispatched separately"),
         SandboxCommand::Get { id } => api.get(&format!("/v1/sandboxes/{id}")).await,
         SandboxCommand::Delete { id } => delete(api, &format!("/v1/sandboxes/{id}")).await,
         SandboxCommand::Start { id, wait } => {
@@ -474,7 +499,7 @@ async fn files(api: &Api, command: FileCommand) -> Result<Value> {
 
 async fn volumes(api: &Api, command: VolumeCommand) -> Result<Value> {
     match command {
-        VolumeCommand::List(page) => api.list("/v1/volumes", "volumes", &page, true).await,
+        VolumeCommand::List(page) => api.list("/v1/volumes", "volumes", &page, true, &[]).await,
         VolumeCommand::Get { id } => api.get(&format!("/v1/volumes/{id}")).await,
         VolumeCommand::Delete { id } => delete(api, &format!("/v1/volumes/{id}")).await,
         VolumeCommand::Create {
@@ -506,7 +531,10 @@ async fn volumes(api: &Api, command: VolumeCommand) -> Result<Value> {
 
 async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
     match command {
-        EndpointCommand::List(page) => api.list("/v1/ingresses", "ingresses", &page, true).await,
+        EndpointCommand::List(page) => {
+            api.list("/v1/ingresses", "ingresses", &page, true, &[])
+                .await
+        }
         EndpointCommand::Get { id } => api.get(&format!("/v1/ingresses/{id}")).await,
         EndpointCommand::Create {
             name,
@@ -551,7 +579,7 @@ async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
 
 async fn images(api: &Api, command: ImageCommand) -> Result<Value> {
     match command {
-        ImageCommand::List(page) => api.list("/v1/images", "images", &page, true).await,
+        ImageCommand::List(page) => api.list("/v1/images", "images", &page, true, &[]).await,
         ImageCommand::Get { id } => api.get(&format!("/v1/images/{id}")).await,
         ImageCommand::Delete { id } => delete(api, &format!("/v1/images/{id}")).await,
         ImageCommand::Wait { id, wait_timeout } => {
@@ -607,7 +635,7 @@ async fn images(api: &Api, command: ImageCommand) -> Result<Value> {
 async fn connections(api: &Api, command: ConnectionCommand) -> Result<Value> {
     let root = "/v1/gateway/connections";
     match command {
-        ConnectionCommand::List(page) => api.list(root, "connections", &page, false).await,
+        ConnectionCommand::List(page) => api.list(root, "connections", &page, false, &[]).await,
         ConnectionCommand::Get { id } => api.get(&format!("{root}/{id}")).await,
         ConnectionCommand::Create(data) => api.post(root, &input::object(Some(&data.data))?).await,
         ConnectionCommand::Update { id, data } => put(api, &format!("{root}/{id}"), input::object(Some(&data.data))?).await,
@@ -621,7 +649,7 @@ async fn connections(api: &Api, command: ConnectionCommand) -> Result<Value> {
             Ok(result)
         },
         ConnectionCommand::OauthComplete { id, data } => api.post(&format!("{root}/{id}/oauth/complete"), &input::object(Some(&data.data))?).await,
-        ConnectionCommand::Calls { id, page } => api.list(&format!("{root}/{id}/calls"), "calls", &page, false).await,
+        ConnectionCommand::Calls { id, page } => api.list(&format!("{root}/{id}/calls"), "calls", &page, false, &[]).await,
         ConnectionCommand::Principals => api.get("/v1/gateway/principals").await,
         ConnectionCommand::Search { query, offset } => api.json(Method::GET, "/v1/gateway/search", None, &[("query".into(),query),("offset".into(),offset.to_string())], None).await,
         ConnectionCommand::Describe { connection, tool } => api.post("/v1/gateway/describe", &json!({"connectionId":connection.to_string(),"tool":tool})).await,

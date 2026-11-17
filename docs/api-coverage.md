@@ -73,6 +73,21 @@ one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
 | `POST /v1/gateway/describe` | `connections describe ID TOOL` |
 | `POST /v1/gateway/call` | `connections call ID TOOL --arguments JSON` |
 | `POST /mcp` (JSON-RPC `tools/list`) | `mcp tools [NAME]` |
+| `GET /v1/identities` | `identities list` |
+| `POST /v1/identities` | `identities create --data JSON` |
+| `GET /v1/identities/{id}` | `identities get IDENTITY`, `identities permissions IDENTITY` |
+| `PUT /v1/identities/{id}` | `identities update`, `enable`, `disable`, `permissions --allow/--deny` |
+| `DELETE /v1/identities/{id}` | `identities delete IDENTITY` |
+| `PUT /v1/identities/{id}/grants` | `identities access IDENTITY MEMBER [--assume] [--manage]` |
+| `PUT /v1/identities/{id}/accounts/{connectionId}` | `identities account IDENTITY CONNECTION_ID` |
+| `GET /v1/identities/{id}/sessions` | `identities sessions list IDENTITY` |
+| `POST /v1/identities/{id}/sessions` | `identities sessions start IDENTITY --label LABEL` |
+| `DELETE /v1/identities/{id}/sessions/{sessionId}` | `identities sessions revoke IDENTITY SESSION_ID` |
+
+Identity routes come from platform `640c00b`.
+Identity commands resolve names with `GET /v1/identities` and member emails with
+`/v1/auth/organization/list-members`, because identity routes accept only full IDs.
+Updates read the identity first and send its whole configuration with the change.
 
 Auth commands use `/v1/auth/device/code`, `/device/token`, `/get-session`, and `/sign-out`.
 Organization commands use Better Auth's `/v1/auth/organization/*` routes; organization

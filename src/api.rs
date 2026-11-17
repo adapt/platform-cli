@@ -278,8 +278,25 @@ impl fmt::Display for ApiError {
         if let Some(retry) = &self.retry_after {
             write!(f, "; retry after {}", output::safe(retry))?;
         }
+        // Identity tokens come from a session, not a login, so signing in again won't help.
+        // Only Platform's identity-token errors start this way; other messages may
+        // mention identity sessions in passing.
+        let identity_session = self.message.starts_with("This identity session");
         if self.status == StatusCode::UNAUTHORIZED {
-            write!(f, "; run `adapt auth login` to sign in again")?;
+            if identity_session {
+                write!(
+                    f,
+                    "; start a new one with `adapt identities sessions start`"
+                )?;
+            } else {
+                write!(f, "; run `adapt auth login` to sign in again")?;
+            }
+        }
+        if self.status == StatusCode::FORBIDDEN && identity_session {
+            write!(
+                f,
+                "; an identity session works only in its own organization, so remove --org or ADAPT_ORG_ID"
+            )?;
         }
         if self.code == "ORGANIZATION_REQUIRED" {
             write!(f, "; run `adapt org list` then `adapt org use ID`")?;

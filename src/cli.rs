@@ -1,4 +1,6 @@
-use crate::input::{ResourceRef, image_name, pair, search_text};
+use crate::input::{
+    ResourceRef, identity_name, identity_ref, image_name, pair, search_text, session_label,
+};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -8,7 +10,7 @@ use uuid::Uuid;
     name = "adapt",
     version,
     about = "Adapt Platform CLI",
-    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details.\nCore resource IDs accept full UUIDs or unambiguous hexadecimal prefixes. Auth and organization IDs require full UUIDs."
+    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details.\nCore resource IDs accept full UUIDs or unambiguous hexadecimal prefixes. Identities accept a full UUID or exact name. Auth and organization IDs require full UUIDs."
 )]
 pub struct Cli {
     /// Saved connection profile
@@ -78,6 +80,9 @@ pub enum Command {
     /// Manage organization API keys
     #[command(subcommand)]
     Keys(KeyCommand),
+    /// Manage identities: scoped permissions, tools, and sessions for people and agents
+    #[command(subcommand, visible_alias = "identity")]
+    Identities(IdentityCommand),
     /// Manage your browser and CLI sessions
     #[command(subcommand)]
     Sessions(SessionCommand),
@@ -675,6 +680,146 @@ pub enum KeyCommand {
     },
     Delete {
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+#[command(
+    after_help = "IDENTITY is a full ID or an exact identity name (ignoring case).\nIdentity commands use your browser sign-in; API keys and identity tokens cannot manage or assume identities.\nChanging an identity's settings, permissions, or member access ends its active sessions."
+)]
+pub enum IdentityCommand {
+    /// List identities you can assume or manage
+    #[command(visible_alias = "ls")]
+    List(Page),
+    /// Show an identity's configuration, member access, and your account bindings
+    Get {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+    },
+    /// Create an identity from flags, JSON, or both; you get assume and manage access
+    #[command(
+        after_help = "Flags override fields in --data. Permissions start empty; add actions with --allow.\nJSON fields: name, permissions, description, enabled, connections, environmentVariableSetIds, maxSessionSeconds, grants.\nOnly organization owners and admins can create identities."
+    )]
+    Create(IdentityCreate),
+    /// Change only the fields in the JSON; other fields keep their current values
+    #[command(
+        after_help = "Top-level fields replace the current value whole, so `permissions` replaces every resource.\nUse `adapt identities permissions` to change single actions.\nOmit `version` to update the current version; include it to refuse a stale edit."
+    )]
+    Update {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        #[command(flatten)]
+        data: Data,
+    },
+    /// Allow new sessions
+    Enable {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+    },
+    /// Block new sessions and end active ones
+    Disable {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+    },
+    /// Delete an identity and end its sessions
+    Delete {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+    },
+    /// Show or change what the identity's sessions can do: Read, Write, or Use per resource
+    #[command(
+        after_help = "Resources: sandboxes, commands, volumes (read, write); images, endpoints, registries, models (read, write, use); mcp-tools, secrets (read, use).\nAPI names such as execs or ingresses also work. Allowing write or use also allows read."
+    )]
+    Permissions {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        /// Add an action, e.g. sandboxes:write (repeatable)
+        #[arg(long, value_name = "RESOURCE:ACTION", value_parser = crate::identities::permission)]
+        allow: Vec<crate::identities::Permission>,
+        /// Remove an action, e.g. volumes:write (repeatable)
+        #[arg(long, value_name = "RESOURCE:ACTION", value_parser = crate::identities::permission)]
+        deny: Vec<crate::identities::Permission>,
+    },
+    /// Set a member's access to the identity; with neither flag, removes it
+    Access {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        /// Member ID from `adapt org members list`, or the member's email
+        member: String,
+        /// Allow the member to start sessions as this identity
+        #[arg(long)]
+        assume: bool,
+        /// Allow the member to change this identity
+        #[arg(long)]
+        manage: bool,
+    },
+    /// Choose your personal account for a connection that uses personal accounts
+    Account {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        /// The identity's organization connection ID
+        connection: Uuid,
+        /// Your personal connection to the same MCP server
+        #[arg(
+            long = "use",
+            value_name = "PERSONAL_CONNECTION_ID",
+            required_unless_present = "clear",
+            conflicts_with = "clear"
+        )]
+        account: Option<Uuid>,
+        /// Remove your account choice
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Start, list, and revoke identity sessions
+    #[command(subcommand)]
+    Sessions(IdentitySessionCommand),
+}
+
+#[derive(Args)]
+pub struct IdentityCreate {
+    /// Unique in the organization, ignoring case
+    #[arg(long, value_parser = identity_name, required_unless_present = "data")]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// Allow an action, e.g. sandboxes:write (repeatable); write and use also allow read
+    #[arg(long, value_name = "RESOURCE:ACTION", value_parser = crate::identities::permission)]
+    pub allow: Vec<crate::identities::Permission>,
+    /// Longest session in seconds; Platform's default is 3600
+    #[arg(long, value_name = "SECONDS", value_parser = clap::value_parser!(u32).range(300..=86400))]
+    pub max_session: Option<u32>,
+    /// Request JSON: inline, @file.json, or - for stdin
+    #[arg(long, short = 'd')]
+    pub data: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum IdentitySessionCommand {
+    /// List sessions: yours, or everyone's if you manage the identity
+    #[command(visible_alias = "ls")]
+    List {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        #[command(flatten)]
+        page: Page,
+    },
+    /// Start a session and print its token once; the token is never saved
+    Start {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        /// Shown to identity managers in session lists
+        #[arg(long, value_parser = session_label)]
+        label: String,
+        /// Lifetime in seconds; defaults to the identity's maximum
+        #[arg(long, value_name = "SECONDS", value_parser = clap::value_parser!(u32).range(300..=86400))]
+        duration: Option<u32>,
+    },
+    /// Revoke a session
+    Revoke {
+        #[arg(value_name = "IDENTITY", value_parser = identity_ref)]
+        identity: String,
+        session: Uuid,
     },
 }
 

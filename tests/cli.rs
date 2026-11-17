@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use support::*;
 
+mod identities;
 mod image_list;
 mod mcp_tools;
 mod resource_prefixes;

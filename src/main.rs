@@ -3,6 +3,7 @@ mod auth;
 mod cli;
 mod commands;
 mod config;
+mod identities;
 mod input;
 mod mcp;
 mod output;

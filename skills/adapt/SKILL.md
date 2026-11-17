@@ -117,6 +117,24 @@ describe the message-posting tool and use that channel ID. Listing channels is
 a separate action from sending a message. Inspect tool results for reported
 errors as well as the CLI exit status.
 
+## Identities
+
+```sh
+adapt identities list
+adapt identities create --name NAME --allow sandboxes:write --allow commands:write
+adapt identities permissions IDENTITY
+adapt identities sessions start IDENTITY --label "LABEL" --duration 1800
+```
+
+Identities are organization-owned sets of permissions, tools, and secrets.
+Identity commands need the user's browser sign-in, not an API key. IDENTITY is
+a full ID or an exact name. `update --data` changes only the fields given;
+`permissions --allow RESOURCE:ACTION` and `--deny` change single actions (read,
+write, use). Any change to an identity ends its active sessions. `sessions
+start` prints a token once: pass it only to the process that needs it as
+`ADAPT_TOKEN`, and never print or store it. An expired or revoked identity
+session returns 401; start a new session rather than signing in again.
+
 ## Platform MCP server
 
 ```sh

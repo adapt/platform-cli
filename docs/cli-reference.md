@@ -43,6 +43,8 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | `registry` | `list`, `create`, `update`, `delete` |
 | `connections` | `list`, `get`, `create`, `update`, `delete`, `refresh`, `grant`, `oauth`, `oauth-complete`, `calls`, `principals`, `search`, `describe`, `call` |
 | `keys` | `list`, `create`, `delete` |
+| `identities` | `list`, `get`, `create`, `update`, `enable`, `disable`, `delete`, `permissions`, `access`, `account` |
+| `identities sessions` | `list`, `start`, `revoke` |
 | `sessions` | `list`, `revoke`, `revoke-others` |
 | `mcp` | `list`, `revoke`, `tools` |
 | `events` | Show organization changes, or personal changes with `--personal` |
@@ -376,6 +378,7 @@ The Platform API must support resource ID prefixes.
 
 Authentication and organization commands require exact identifiers.
 This includes `--org`, members, invitations, keys, sessions, and grant principals.
+Identity commands accept a full identity ID or an exact identity name; see [Identities](#identities).
 `org use` accepts a full organization ID or an exact slug.
 Pagination cursors, idempotency keys, and credential tokens also require exact values.
 
@@ -516,6 +519,113 @@ To revoke the key, use `adapt keys delete KEY_ID`.
 `ADAPT_TOKEN` overrides saved credentials for requests.
 Logout always uses the saved credential.
 It never revokes a key from `ADAPT_TOKEN`.
+
+## Identities
+
+An identity is a set of permissions, tools, and secrets that members assume through expiring sessions.
+Identity commands use your browser sign-in.
+Platform refuses them for API keys and identity tokens.
+
+```sh
+adapt identities list
+adapt identities create --name deploy-bot --allow sandboxes:write --allow commands:write --max-session 1800
+adapt identities create --data @identity.json
+adapt identities get deploy-bot
+adapt identities update deploy-bot --data '{"maxSessionSeconds":7200}'
+adapt identities disable deploy-bot
+adapt identities enable deploy-bot
+adapt identities delete deploy-bot
+```
+
+`create` builds the request from `--data` and then its options, which override fields in the JSON.
+Permissions start empty, and `--allow` adds actions as in [Permissions](#permissions).
+Use `--data` for connections, secrets, and member access.
+Only organization owners and admins can create identities, and the creator can assume and manage the new identity.
+
+Commands accept a full identity ID or an exact name.
+Names match without case sensitivity.
+The CLI looks names up among the identities that you can assume or manage.
+
+`update` changes only the fields in its JSON and keeps the others.
+A top-level field replaces its whole value, so `permissions` replaces every resource's actions.
+Include `version` to refuse the change if the identity has changed since you read it.
+`enable` and `disable` change only `enabled`.
+
+Platform ends an identity's active sessions when its settings, permissions, or member access change.
+Changing your account choice ends your own sessions.
+If a command would leave every setting as it is, the CLI does not save, and sessions continue.
+
+Platform checks the identity's connections again on every save.
+If a connection was removed or its allowed tools changed, every save fails until `update` supplies corrected `connections`.
+This includes `disable`.
+`delete` still works.
+
+### Permissions
+
+An identity's sessions can read, write, or use each resource:
+
+| Resource | Actions |
+| --- | --- |
+| `sandboxes`, `commands`, `volumes` | `read`, `write` |
+| `images`, `endpoints`, `registries`, `models` | `read`, `write`, `use` |
+| `mcp-tools`, `secrets` | `read`, `use` |
+
+```sh
+adapt identities permissions deploy-bot
+adapt identities permissions deploy-bot --allow sandboxes:write --allow images:use --deny volumes:write
+```
+
+API names such as `execs`, `ingresses`, and `registryCredentials` also work.
+Allowing `write` or `use` also allows `read`.
+You can deny `read` separately afterward.
+Platform refuses permissions beyond your own access.
+
+### Member access
+
+```sh
+adapt identities access deploy-bot ana@example.com --assume
+adapt identities access deploy-bot MEMBER_ID --assume --manage
+adapt identities access deploy-bot ana@example.com
+```
+
+`--assume` lets a member start sessions.
+`--manage` lets a member change the identity.
+Without either option, the command removes the member's access.
+If the member already has the requested access, the CLI does not save, and the identity's sessions continue.
+Use a member ID from `adapt org members list` or the member's email.
+Organization owners and admins can manage every identity.
+
+### Personal accounts
+
+Some connections require each person's own account.
+For those connections, choose your personal connection to the same MCP server:
+
+```sh
+adapt identities account deploy-bot CONNECTION_ID --use PERSONAL_CONNECTION_ID
+adapt identities account deploy-bot CONNECTION_ID --clear
+```
+
+Platform never substitutes a shared account.
+
+### Sessions
+
+```sh
+adapt identities sessions start deploy-bot --label "nightly deploy" --duration 1800
+adapt identities sessions list deploy-bot
+adapt identities sessions revoke deploy-bot SESSION_ID
+```
+
+`sessions start` prints the session token once in its response.
+The CLI never saves it.
+Give the token to one process as `ADAPT_TOKEN`; it works with Platform APIs and MCP until it expires or is revoked.
+The duration defaults to the identity's maximum session length.
+Sessions cannot be extended.
+
+`sessions list` shows your sessions, or every member's sessions if you manage the identity.
+`sessions revoke` checks the session list afterward and fails if Platform found no matching session.
+
+When a session expires or is revoked, requests that use its token fail with `401`.
+Start a new session to continue.
 
 ## Platform MCP tools
 

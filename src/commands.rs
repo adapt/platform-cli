@@ -3,7 +3,7 @@ use crate::{
     auth,
     cli::*,
     config::{self, Config, Credential, CredentialKind},
-    input, mcp, output, shell, skill, stream,
+    identities, input, mcp, output, shell, skill, stream,
 };
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
@@ -186,6 +186,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         },
         Command::Connections(command) => connections(&api, command).await?,
         Command::Keys(command) => keys(&api, command).await?,
+        Command::Identities(command) => return identities::run(&api, command, cli.json).await,
         Command::Sessions(command) => match command {
             SessionCommand::List => api.get("/v1/auth/sessions").await?,
             SessionCommand::Revoke { id } => api.post("/v1/auth/sessions/revoke", &json!({"id":id.to_string()})).await?,

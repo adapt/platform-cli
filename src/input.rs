@@ -117,6 +117,39 @@ pub fn search_text(value: &str) -> Result<String, String> {
     Ok(value.into())
 }
 
+/// An identity selector: a full UUID, or a name that Platform compares trimmed.
+pub fn identity_ref(value: &str) -> Result<String, String> {
+    let value = js_trim(value);
+    if value.is_empty() {
+        return Err("Use an identity name or ID".into());
+    }
+    Ok(value.into())
+}
+
+/// Platform trims identity names and requires 1 to 100 characters.
+pub fn identity_name(value: &str) -> Result<String, String> {
+    let value = js_trim(value);
+    if value.is_empty() {
+        return Err("Identity name cannot be empty".into());
+    }
+    if value.chars().count() > 100 {
+        return Err("Identity name must be at most 100 characters".into());
+    }
+    Ok(value.into())
+}
+
+/// Platform trims session labels and requires 1 to 100 characters.
+pub fn session_label(value: &str) -> Result<String, String> {
+    let value = js_trim(value);
+    if value.is_empty() {
+        return Err("Session label cannot be empty".into());
+    }
+    if value.chars().count() > 100 {
+        return Err("Session label must be at most 100 characters".into());
+    }
+    Ok(value.into())
+}
+
 /// Platform trims image names on import and when filtering, and rejects a blank one.
 pub fn image_name(value: &str) -> Result<String, String> {
     let value = js_trim(value);

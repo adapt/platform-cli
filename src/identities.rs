@@ -88,7 +88,7 @@ pub fn permission(value: &str) -> Result<Permission, String> {
 
 pub async fn run(api: &Api, command: IdentityCommand, json: bool) -> Result<u8> {
     if let Some(result) = dispatch(api, command, json).await.map_err(explain)? {
-        output::print(&result, json)?;
+        output::detail(&result, json)?;
     }
     Ok(0)
 }

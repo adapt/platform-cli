@@ -69,6 +69,19 @@ pub fn print(value: &Value, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Prints one object: indented JSON in a terminal, compact JSON when piped.
+/// Unlike `print`, it never shows a field such as `connections` as a table.
+pub fn detail(value: &Value, json: bool) -> Result<()> {
+    let mut out = io::stdout().lock();
+    if tables(json) {
+        serde_json::to_writer_pretty(&mut out, value)?;
+    } else {
+        serde_json::to_writer(&mut out, value)?;
+    }
+    writeln!(out)?;
+    Ok(())
+}
+
 /// Writes `keys` of each row as left-aligned columns under uppercase headings.
 /// Cells are sanitized and cut at 80 characters; missing values show as —.
 pub fn table(out: &mut impl Write, keys: &[&str], rows: &[Value]) -> io::Result<()> {

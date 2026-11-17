@@ -331,3 +331,55 @@ pub fn save_profile(dir: &Path, url: &str) {
         .unwrap();
     }
 }
+
+/// Runs `cmd` with stdout on a pseudo-terminal, as an interactive user sees it,
+/// and returns its exit code and the terminal text with CRLF line endings normalized.
+#[cfg(unix)]
+pub fn in_terminal(mut cmd: Command) -> (i32, String) {
+    use std::{
+        fs::File,
+        os::fd::{AsRawFd, FromRawFd},
+    };
+    let (mut master, mut slave) = (-1, -1);
+    // SAFETY: The out-pointers are valid, and the descriptors are owned by Files at once.
+    let (mut master, slave) = unsafe {
+        assert_eq!(
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut()
+            ),
+            0
+        );
+        (File::from_raw_fd(master), File::from_raw_fd(slave))
+    };
+    // SAFETY: The descriptor is valid for the duration of the call.
+    unsafe {
+        assert_eq!(
+            libc::fcntl(master.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC),
+            0
+        );
+    }
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(slave)
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The Command holds the slave until dropped; the master reads EOF only once
+    // every slave descriptor is closed.
+    drop(cmd);
+    let mut text = Vec::new();
+    let mut chunk = [0; 4096];
+    // Linux reports EIO and macOS EOF once the child closes the terminal.
+    while let Ok(n @ 1..) = master.read(&mut chunk) {
+        text.extend_from_slice(&chunk[..n]);
+    }
+    let status = child.wait().unwrap();
+    (
+        status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&text).replace("\r\n", "\n"),
+    )
+}

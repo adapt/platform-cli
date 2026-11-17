@@ -944,3 +944,59 @@ fn create_needs_a_name_or_data() {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn a_terminal_shows_the_whole_identity_even_without_connections() {
+    let mut current = detail();
+    current["connections"] = json!([]);
+    let mut disabled = current.clone();
+    disabled["enabled"] = json!(false);
+    let mut saved_body = saved(json!({"enabled": false}));
+    saved_body["connections"] = json!([]);
+    for (args, steps) in [
+        (
+            vec!["identities", "get", ID],
+            vec![call(
+                "GET",
+                format!("/v1/identities/{ID}"),
+                None,
+                200,
+                Some(current.clone()),
+            )],
+        ),
+        (
+            vec!["identities", "disable", ID],
+            vec![
+                call(
+                    "GET",
+                    format!("/v1/identities/{ID}"),
+                    None,
+                    200,
+                    Some(current.clone()),
+                ),
+                call(
+                    "PUT",
+                    format!("/v1/identities/{ID}"),
+                    Some(saved_body.clone()),
+                    200,
+                    Some(disabled.clone()),
+                ),
+            ],
+        ),
+    ] {
+        let server = Server::start(steps);
+        let dir = tempfile::tempdir().unwrap();
+        let mut command = command(dir.path(), &server.url);
+        command
+            .env("ADAPT_TOKEN", "test-token")
+            .env("ADAPT_ORG_ID", ORG)
+            .args(&args);
+        let (code, text) = in_terminal(command);
+        assert_eq!(code, 0, "{text}");
+        assert!(!text.contains("No results."), "{text}");
+        assert!(text.contains("\"name\": \"deploy-bot\""), "{text}");
+        assert!(text.contains("\"connections\": []"), "{text}");
+        server.finish();
+    }
+}

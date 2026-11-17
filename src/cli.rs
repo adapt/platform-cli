@@ -8,7 +8,7 @@ use uuid::Uuid;
     name = "adapt",
     version,
     about = "Adapt Platform CLI",
-    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details.\nResource IDs accept full UUIDs or unambiguous hexadecimal prefixes."
+    after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details.\nCore resource IDs accept full UUIDs or unambiguous hexadecimal prefixes. Auth and organization IDs require full UUIDs."
 )]
 pub struct Cli {
     /// Saved connection profile
@@ -17,9 +17,9 @@ pub struct Cli {
     /// Platform API origin (defaults to https://platform.adapt.com)
     #[arg(long, global = true, env = "ADAPT_API_URL")]
     pub api_url: Option<String>,
-    /// Organization UUID or unambiguous ID prefix for this request
+    /// Organization ID for this request
     #[arg(long, global = true, env = "ADAPT_ORG_ID")]
-    pub org: Option<ResourceRef>,
+    pub org: Option<Uuid>,
     /// Emit JSON (also the default when stdout is piped)
     #[arg(long, global = true)]
     pub json: bool,
@@ -178,7 +178,7 @@ pub struct Creation {
 pub enum OrgCommand {
     #[command(visible_alias = "ls")]
     List,
-    /// Select by organization ID, unambiguous ID prefix, or exact slug
+    /// Select by organization ID or exact slug
     Use {
         organization: String,
     },
@@ -207,7 +207,7 @@ pub enum MemberCommand {
         offset: u64,
     },
     Role {
-        id: ResourceRef,
+        id: Uuid,
         #[arg(value_enum)]
         role: Role,
     },
@@ -238,13 +238,13 @@ pub enum InvitationCommand {
         resend: bool,
     },
     Cancel {
-        id: ResourceRef,
+        id: Uuid,
     },
     Accept {
-        id: ResourceRef,
+        id: Uuid,
     },
     Reject {
-        id: ResourceRef,
+        id: Uuid,
     },
 }
 
@@ -653,7 +653,7 @@ pub enum SessionCommand {
     #[command(visible_alias = "ls")]
     List,
     Revoke {
-        id: ResourceRef,
+        id: Uuid,
     },
     RevokeOthers,
 }
@@ -663,7 +663,7 @@ pub enum McpCommand {
     #[command(visible_alias = "ls")]
     List,
     Revoke {
-        id: ResourceRef,
+        id: Uuid,
     },
 }
 

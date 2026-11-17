@@ -10,12 +10,15 @@ description: >-
 
 Use `adapt COMMAND --help` for exact arguments. `adapt skill show` prints this
 guide offline. Discover resource IDs with list/search commands rather than guessing.
-Resource selectors, including linked IDs such as `--image-id`, `--credential`, and
-both IDs in `endpoints bind`, accept full UUIDs or unambiguous hexadecimal prefixes.
+Core resource selectors (sandboxes, executions, images, registries, volumes,
+endpoints, variable sets, and tool connections), including linked IDs such as
+`--image-id`, `--credential`, and both IDs in `endpoints bind`, accept full UUIDs or
+unambiguous hexadecimal prefixes.
 Platform resolves them within the caller's authorized scope; ambiguity returns
 409, so supply more characters. Responses retain full IDs. Prefer full IDs for
-persistent scripts and deleted resources. Cursors, idempotency keys, and credential
-tokens require exact values. Every `list` command also accepts `ls`.
+persistent scripts and deleted resources. Auth and organization selectors require
+exact IDs; `org use` also accepts an exact slug. Cursors, idempotency keys, and
+credential tokens require exact values. Every `list` command also accepts `ls`.
 
 ## Identity and organization
 

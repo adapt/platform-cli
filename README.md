@@ -147,9 +147,9 @@ On Unix, SIGTERM and SIGHUP trigger cleanup too. Cleanup errors report the sandb
 ID and a retry command. Automatic expiry still follows the create options (one hour
 by default); shells have the API's maximum execution timeout of 24 hours.
 
-Resource selectors accept a full UUID or an unambiguous ID prefix, including
+Core agent resource selectors accept a full UUID or an unambiguous ID prefix, including
 sandboxes, executions, images, registries, volumes, endpoints, variable sets,
-connections, members, invitations, keys, and sessions. This includes references
+and tool connections. This includes references
 such as `--image-id`, `--credential`, and both IDs in an endpoint binding:
 
 ```sh
@@ -164,11 +164,13 @@ organization. Matching ignores case and accepts UUID hyphens or compact hex.
 Multiple matches fail with `409 CONFLICT`; supply more characters. Prefixes
 exclude deleted resources; full IDs preserve access to retained history.
 Responses retain full UUIDs, and waits and log reconnects follow the resolved ID.
-Use full IDs in persistent scripts. `org use` also accepts an exact organization
-slug, which takes precedence over a prefix.
+Use full IDs in persistent scripts.
 
-This requires a Platform API version with resource ID prefix support. Pagination
-cursors, idempotency keys, and credential tokens still require their exact values.
+This requires a Platform API version with resource ID prefix support. Auth and
+organization selectors retain their existing exact-ID rules, including `--org`,
+members, invitations, keys, sessions, and grant principals. `org use` accepts a full
+organization ID or an exact slug. Pagination cursors, idempotency keys, and
+credential tokens still require their exact values.
 
 Create a sandbox, run a command, and open a shell:
 

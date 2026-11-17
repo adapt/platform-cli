@@ -4,6 +4,7 @@ use std::time::Duration;
 use support::*;
 
 mod image_list;
+mod mcp_tools;
 mod resource_prefixes;
 mod retries;
 mod sandbox_list;

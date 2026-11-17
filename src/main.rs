@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 mod config;
 mod input;
+mod mcp;
 mod output;
 mod shell;
 mod skill;

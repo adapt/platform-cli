@@ -18,21 +18,23 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 use uuid::Uuid;
 
 #[derive(Default, Debug)]
-struct Event {
-    name: String,
-    id: Option<String>,
-    data: String,
+pub(crate) struct Event {
+    pub(crate) name: String,
+    pub(crate) id: Option<String>,
+    pub(crate) data: String,
 }
 
+/// Incremental Server-Sent Events parser. Feed arbitrary chunks to `push`, then
+/// drain complete events from `events`.
 #[derive(Default)]
-struct Decoder {
+pub(crate) struct Decoder {
     pending: Vec<u8>,
     current: Event,
-    events: VecDeque<Event>,
+    pub(crate) events: VecDeque<Event>,
 }
 
 impl Decoder {
-    fn push(&mut self, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> Result<()> {
         self.pending.extend_from_slice(bytes);
         if self.pending.len() + self.current.data.len() > 8 * 1024 * 1024 {
             bail!("SSE event exceeds 8 MiB");

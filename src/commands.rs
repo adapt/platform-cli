@@ -3,7 +3,7 @@ use crate::{
     auth,
     cli::*,
     config::{self, Config, Credential, CredentialKind},
-    input, output, shell, skill, stream,
+    input, mcp, output, shell, skill, stream,
 };
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
@@ -48,6 +48,13 @@ pub async fn run(cli: Cli) -> Result<u8> {
     let origin = config::origin(cli.api_url.as_deref().unwrap_or(&saved.api_url))?;
     let same_origin = config::origin(&saved.api_url)?.origin() == origin.origin();
     let env_token = std::env::var("ADAPT_TOKEN").ok().filter(|s| !s.is_empty());
+    // Platform's MCP server rejects sign-in sessions, so `mcp tools` refuses one up front.
+    let session_credential = env_token.is_none()
+        && same_origin
+        && saved
+            .credential
+            .as_ref()
+            .is_some_and(|c| c.kind == CredentialKind::Session);
     let token = env_token.as_deref().or_else(|| {
         same_origin
             .then_some(saved.credential.as_ref())
@@ -184,7 +191,9 @@ pub async fn run(cli: Cli) -> Result<u8> {
             SessionCommand::Revoke { id } => api.post("/v1/auth/sessions/revoke", &json!({"id":id.to_string()})).await?,
             SessionCommand::RevokeOthers => api.post("/v1/auth/sessions/revoke-others", &json!({})).await?,
         },
+        Command::Mcp(McpCommand::Tools { name }) => return mcp::tools(&api, name, session_credential, cli.json).await,
         Command::Mcp(command) => match command {
+            McpCommand::Tools { .. } => unreachable!("MCP tool lists are dispatched separately"),
             McpCommand::List => api.get("/v1/auth/mcp/connections").await?,
             McpCommand::Revoke { id } => api.post("/v1/auth/mcp/revoke", &json!({"id":id.to_string()})).await?,
         },

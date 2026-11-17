@@ -81,7 +81,7 @@ pub enum Command {
     /// Manage your browser and CLI sessions
     #[command(subcommand)]
     Sessions(SessionCommand),
-    /// Inspect and revoke connected MCP clients
+    /// Inspect connected MCP clients and the tools the Platform MCP server provides
     #[command(subcommand)]
     Mcp(McpCommand),
     /// Watch resource changes as newline-delimited JSON
@@ -690,10 +690,18 @@ pub enum SessionCommand {
 
 #[derive(Subcommand)]
 pub enum McpCommand {
+    /// List MCP clients you have authorized
     #[command(visible_alias = "ls")]
     List,
-    Revoke {
-        id: Uuid,
+    /// Revoke an authorized MCP client
+    Revoke { id: Uuid },
+    /// List the Platform MCP server's built-in tools (requires an API key)
+    #[command(
+        after_help = "The Platform MCP server accepts organization API keys, not browser sign-in sessions.\nSave a key with `adapt auth login --token-stdin` (optionally in its own --profile) or set ADAPT_TOKEN.\nWith NAME, prints that tool's full description, input schema, and annotations."
+    )]
+    Tools {
+        /// Show one tool's full definition
+        name: Option<String>,
     },
 }
 

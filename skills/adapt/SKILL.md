@@ -117,6 +117,19 @@ describe the message-posting tool and use that channel ID. Listing channels is
 a separate action from sending a message. Inspect tool results for reported
 errors as well as the CLI exit status.
 
+## Platform MCP server
+
+```sh
+adapt mcp tools
+adapt mcp tools TOOL_NAME
+```
+
+`mcp tools` lists the built-in tools of Platform's own MCP server, and
+`mcp tools TOOL_NAME` prints one tool's input schema. It requires an organization
+API key (`adapt auth login --token-stdin` or `ADAPT_TOKEN`); browser sign-in
+sessions are refused. These are not the user's connected tools; use
+`connections search` for those. `mcp list` shows authorized MCP clients, not tools.
+
 ## Output, pagination, and retries
 
 Normal commands print JSON when piped; `--json` requests it explicitly. Execution

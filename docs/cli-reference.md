@@ -44,15 +44,16 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | `connections` | `list`, `get`, `create`, `update`, `delete`, `refresh`, `grant`, `oauth`, `oauth-complete`, `calls`, `principals`, `search`, `describe`, `call` |
 | `keys` | `list`, `create`, `delete` |
 | `sessions` | `list`, `revoke`, `revoke-others` |
-| `mcp` | `list`, `revoke` |
+| `mcp` | `list`, `revoke`, `tools` |
 | `events` | Show organization changes, or personal changes with `--personal` |
 | `health` | Test API availability, or database readiness with `--ready` |
 | `profiles` | Show saved API URLs, organizations, and credential status |
 | `api` | Send an authenticated request to a path on the selected API server |
 
 `connections` manages upstream MCP services.
-`mcp` manages clients with permission to connect to Platform.
-Named commands do not cover internal compute administration, OAuth provider internals, or the `/mcp` transport.
+`mcp list` and `mcp revoke` manage clients with permission to connect to Platform.
+`mcp tools` lists the tools that Platform's own MCP server provides.
+Named commands do not cover internal compute administration, OAuth provider internals, or calling tools through `/mcp`.
 See [API coverage](api-coverage.md) for routes and API version details.
 
 ## Authentication and profiles
@@ -515,6 +516,37 @@ To revoke the key, use `adapt keys delete KEY_ID`.
 `ADAPT_TOKEN` overrides saved credentials for requests.
 Logout always uses the saved credential.
 It never revokes a key from `ADAPT_TOKEN`.
+
+## Platform MCP tools
+
+Platform hosts an MCP server at `/mcp` on the API origin.
+To list its built-in tools, run:
+
+```sh
+adapt mcp tools
+adapt mcp tools read_file
+adapt mcp tools --json
+```
+
+A terminal shows each tool's name, access hint, and the first sentence of its description.
+The access hint comes from the tool's annotations: `read-only`, `write`, or `destructive`.
+It describes the tool, not the permissions of your key.
+With a tool name, the command prints that tool's full description, input schema, and annotations.
+JSON output is the server's `tools/list` result, `{"tools":[...]}`, after the CLI follows every page.
+
+The command authenticates with an organization API key.
+The MCP server rejects CLI sign-in sessions, so the command refuses a saved browser login before it sends a request.
+To keep your browser login, save a key in its own profile:
+
+```sh
+adapt keys create mcp-tools --json
+adapt --profile agent auth login --token-stdin < /path/to/private/key-file
+adapt --profile agent mcp tools
+```
+
+The CLI sends one stateless `tools/list` request per page with MCP protocol version `2025-03-26`.
+It accepts JSON and event-stream responses.
+It does not retry this request automatically.
 
 ## Configuration
 

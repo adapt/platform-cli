@@ -72,6 +72,7 @@ one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
 | `GET /v1/gateway/search` | `connections search QUERY` |
 | `POST /v1/gateway/describe` | `connections describe ID TOOL` |
 | `POST /v1/gateway/call` | `connections call ID TOOL --arguments JSON` |
+| `POST /mcp` (JSON-RPC `tools/list`) | `mcp tools [NAME]` |
 
 Auth commands use `/v1/auth/device/code`, `/device/token`, `/get-session`, and `/sign-out`.
 Organization commands use Better Auth's `/v1/auth/organization/*` routes; organization

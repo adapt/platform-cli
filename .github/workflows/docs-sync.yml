@@ -1,0 +1,30 @@
+name: Docs sync
+
+# Sends each merged PR to the Adapt docs sync automation, which opens a docs PR when one is needed.
+# pull_request_target gives the job the webhook secrets; it never checks out PR code.
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Send the merged PR to the docs sync
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          WEBHOOK_URL: ${{ secrets.DOCS_SYNC_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.DOCS_SYNC_WEBHOOK_SECRET }}
+        run: |
+          jq -n --arg repository "$GITHUB_REPOSITORY" --argjson pull_request "$PR" --arg sha "$SHA" \
+            '{repository: $repository, pull_request: $pull_request, sha: $sha}' |
+            curl --fail-with-body --silent --show-error --request POST "$WEBHOOK_URL" \
+              --header "Authorization: Bearer $WEBHOOK_SECRET" \
+              --header "Content-Type: application/json" \
+              --data @-

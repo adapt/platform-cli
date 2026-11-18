@@ -7,13 +7,18 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
-use reqwest::Method;
+use futures_util::StreamExt;
+use reqwest::{
+    Method,
+    header::{HeaderMap, HeaderValue, LOCATION},
+};
 use serde_json::{Value, json};
 use std::{
     io::{self, Write},
     path::Path,
     time::Duration,
 };
+use url::Url;
 use uuid::Uuid;
 
 pub async fn run(cli: Cli) -> Result<u8> {
@@ -168,6 +173,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         },
         Command::Files(command) => files(&api, command).await?,
         Command::Volumes(command) => volumes(&api, command).await?,
+        Command::Endpoints(EndpointCommand::Request(args)) => return request_endpoint(&api, args).await,
         Command::Endpoints(command) => endpoints(&api, command).await?,
         Command::Images(ImageCommand::List(args)) => return list_images(&api, args, cli.json).await,
         Command::Images(command) => images(&api, command).await?,
@@ -638,7 +644,94 @@ async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
         EndpointCommand::RevokeTokens { id } => {
             delete(api, &format!("/v1/ingresses/{id}/access-tokens")).await
         }
+        EndpointCommand::Request(_) => unreachable!("Endpoint requests are dispatched separately"),
     }
+}
+
+/// Sends one request to an endpoint's hosted application and streams the body to
+/// stdout. Platform credentials only look up the endpoint and create a token; the
+/// application receives the caller's headers and, at most, the endpoint token.
+async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
+    let path = &args.path;
+    if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') || path.contains('#')
+    {
+        bail!("Use an absolute path such as /events, without a host or fragment");
+    }
+    let body = args.data.as_deref().map(input::data).transpose()?;
+    let endpoint = api.get(&format!("/v1/ingresses/{}", args.id)).await?;
+    let base = Url::parse(endpoint["url"].as_str().context("Endpoint has no URL")?)
+        .context("Endpoint has an invalid URL")?;
+    config::validate_http_url(&base)?;
+    if base.query().is_some() || base.fragment().is_some() {
+        bail!("Endpoint URL has an unexpected query or fragment");
+    }
+    // Append like `curl "${ENDPOINT_URL}events"`, keeping any path prefix in the URL.
+    let url = Url::parse(&format!("{}{path}", base.as_str().trim_end_matches('/')))?;
+    if url.origin() != base.origin() {
+        bail!("Requests must stay on the endpoint's origin");
+    }
+    let token = if args.new_token {
+        let id = resource_id(&endpoint)?;
+        let created = api
+            .post(&format!("/v1/ingresses/{id}/access-tokens"), &json!({}))
+            .await?;
+        let token = created["token"].as_str();
+        Some(
+            token
+                .context("Token response is missing the token")?
+                .to_owned(),
+        )
+    } else {
+        args.token
+    };
+    let mut headers = HeaderMap::new();
+    for (name, value) in args.headers {
+        headers.append(name, value);
+    }
+    if let Some(token) = token {
+        if token.is_empty() || token.chars().any(|c| c.is_whitespace() || c == ',') {
+            bail!("Invalid endpoint token");
+        }
+        let mut value =
+            HeaderValue::from_str(&format!("Bearer {token}")).context("Invalid endpoint token")?;
+        value.set_sensitive(true);
+        headers.insert("X-Adapt-Authorization", value);
+    }
+    // Never api.request(): it attaches Platform credentials. This client follows no redirects.
+    let mut request = api
+        .client
+        .request(args.method.parse()?, url)
+        .headers(headers);
+    if let Some(body) = body {
+        request = request.body(body);
+    }
+    let response = tokio::time::timeout(api.timeout, request.send())
+        .await
+        .context("Timed out waiting for the endpoint to respond")?
+        .context("Endpoint request failed")?;
+    let status = response.status();
+    let location = response.headers().get(LOCATION).cloned();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = tokio::time::timeout(api.timeout, stream.next())
+        .await
+        .context("Endpoint response was idle for longer than --timeout")?
+    {
+        let mut out = io::stdout().lock();
+        out.write_all(&chunk.context("Endpoint response was interrupted")?)?;
+        out.flush()?;
+    }
+    if status.is_success() {
+        return Ok(0);
+    }
+    let mut message = format!("Endpoint returned HTTP {status}");
+    if status.is_redirection() {
+        message += "; redirects are not followed";
+        if let Some(location) = location {
+            let location = String::from_utf8_lossy(location.as_bytes());
+            message += &format!(" (Location: {})", output::safe(&location));
+        }
+    }
+    bail!(message)
 }
 
 async fn images(api: &Api, command: ImageCommand) -> Result<Value> {

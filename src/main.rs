@@ -36,10 +36,17 @@ async fn run(cli: Cli) -> ExitCode {
         // This command owns its sandbox and must finish cleanup before returning.
         commands::run(cli).await
     } else {
+        // Stopping an endpoint request leaves no remote work behind.
+        let remote_work = !matches!(
+            &cli.command,
+            cli::Command::Endpoints(cli::EndpointCommand::Request(_))
+        );
         tokio::select! {
             result = commands::run(cli) => result,
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("\nCancelled. Remote executions continue; use `adapt execs cancel ID` to stop one.");
+                if remote_work {
+                    eprintln!("\nCancelled. Remote executions continue; use `adapt execs cancel ID` to stop one.");
+                }
                 return ExitCode::from(130);
             }
         }

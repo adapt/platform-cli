@@ -1,0 +1,254 @@
+use crate::support::*;
+use serde_json::json;
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    process::{Child, Stdio},
+    sync::mpsc,
+    time::Duration,
+};
+
+fn endpoint(app: &Server) -> serde_json::Value {
+    json!({"id":ID,"url":format!("{}/", app.url),"accessMode":"public"})
+}
+
+fn spawn(dir: &std::path::Path, platform: &Server, args: &[&str]) -> Child {
+    command(dir, &platform.url)
+        .env("ADAPT_TOKEN", "test-token")
+        .env("ADAPT_ORG_ID", ORG)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+/// The application must never see Platform credentials, whatever else it receives.
+fn assert_no_platform_credentials(request: &Request) {
+    assert!(!request.headers.contains_key("x-organization-id"));
+    for value in request.headers.values() {
+        assert!(!value.contains("test-token"), "Platform token leaked");
+    }
+}
+
+#[test]
+fn streams_events_as_they_arrive_without_platform_credentials() {
+    let (read_first, first_read) = mpsc::channel::<()>();
+    let app = Server::script(vec![Box::new(move |mut socket| {
+        let request = read_request(&mut socket);
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.target, "/events?since=1");
+        assert_eq!(request.headers["accept"], "text/event-stream");
+        assert!(!request.headers.contains_key("authorization"));
+        assert!(!request.headers.contains_key("x-adapt-authorization"));
+        assert_no_platform_credentials(&request);
+        // No Content-Length: the body runs until the connection closes.
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: one\n\n"
+        )
+        .unwrap();
+        socket.flush().unwrap();
+        // A buffering client would wait for the end of the body, so end it and
+        // let the test's send fail instead of hanging.
+        first_read
+            .recv_timeout(Duration::from_secs(10))
+            .expect("The CLI did not print the first event while the stream was open");
+        write!(socket, "data: two\n\n").unwrap();
+        request
+    })]);
+    let platform = Server::start(vec![step(
+        "GET",
+        format!("/v1/ingresses/{ID}"),
+        None,
+        endpoint(&app),
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = spawn(
+        dir.path(),
+        &platform,
+        &[
+            "endpoints",
+            "request",
+            ID,
+            "/events?since=1",
+            "-H",
+            "Accept: text/event-stream",
+        ],
+    );
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut first = String::new();
+    stdout.read_line(&mut first).unwrap();
+    stdout.read_line(&mut first).unwrap();
+    // The first event reached stdout while the application held the stream open.
+    assert_eq!(first, "data: one\n\n");
+    read_first
+        .send(())
+        .expect("The stream ended before the first event was printed");
+    let mut rest = String::new();
+    stdout.read_to_string(&mut rest).unwrap();
+    assert_eq!(rest, "data: two\n\n");
+    let status = child.wait().unwrap();
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    assert!(status.success(), "{stderr}");
+    platform.finish();
+    app.finish();
+}
+
+#[test]
+fn authenticated_requests_send_only_the_endpoint_token() {
+    let app = Server::start(vec![
+        Box::new(|r| {
+            assert_eq!(r.method, "POST");
+            assert_eq!(r.target, "/api/items");
+            assert_eq!(r.headers["x-adapt-authorization"], "Bearer minted-token");
+            // The application's own Authorization header passes through untouched.
+            assert_eq!(r.headers["authorization"], "Bearer app-secret");
+            assert_eq!(r.headers["content-type"], "application/json");
+            assert_eq!(r.json(), json!({"name":"a"}));
+            assert_no_platform_credentials(r);
+            Reply::json(201, json!({"created":true}))
+        }),
+        Box::new(|r| {
+            // The path is appended to the endpoint URL, keeping its prefix.
+            assert_eq!(r.target, "/prefix/hello?x=1");
+            assert_eq!(r.headers["x-adapt-authorization"], "Bearer given-token");
+            assert!(!r.headers.contains_key("authorization"));
+            assert_no_platform_credentials(r);
+            Reply::bytes("text/plain", b"hello".to_vec())
+        }),
+    ]);
+    let platform = Server::start(vec![
+        step("GET", "/v1/ingresses/11111111".into(), None, endpoint(&app)),
+        // The token is created for the resolved ID, not the prefix.
+        step(
+            "POST",
+            format!("/v1/ingresses/{ID}/access-tokens"),
+            Some(json!({})),
+            json!({"token":"minted-token","expiresAt":"2030-01-01T00:00:00Z"}),
+        ),
+        step(
+            "GET",
+            format!("/v1/ingresses/{ID}"),
+            None,
+            json!({"id":ID,"url":format!("{}/prefix/", app.url)}),
+        ),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    let output = run(
+        dir.path(),
+        &platform.url,
+        &[
+            "endpoints",
+            "request",
+            "11111111",
+            "/api/items",
+            "-X",
+            "POST",
+            "--new-token",
+            "-H",
+            "Authorization: Bearer app-secret",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            r#"{"name":"a"}"#,
+        ],
+    );
+    assert_eq!(success(&output), json!({"created":true}));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("minted-token"));
+
+    let output = run(
+        dir.path(),
+        &platform.url,
+        &[
+            "endpoints",
+            "request",
+            ID,
+            "/hello?x=1",
+            "--token",
+            "given-token",
+        ],
+    );
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"hello");
+    platform.finish();
+    app.finish();
+}
+
+#[test]
+fn error_statuses_print_the_body_and_redirects_are_not_followed() {
+    let app = Server::start(vec![
+        Box::new(|_| Reply {
+            status: 404,
+            content_type: "text/plain",
+            headers: vec![],
+            body: b"no such page".to_vec(),
+        }),
+        Box::new(|_| Reply {
+            status: 302,
+            content_type: "text/plain",
+            headers: vec![("Location".into(), "https://other.example/login".into())],
+            body: vec![],
+        }),
+    ]);
+    let platform = Server::start(vec![
+        step("GET", format!("/v1/ingresses/{ID}"), None, endpoint(&app)),
+        step("GET", format!("/v1/ingresses/{ID}"), None, endpoint(&app)),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    let output = run(
+        dir.path(),
+        &platform.url,
+        &["endpoints", "request", ID, "/missing"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.stdout, b"no such page");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("HTTP 404"), "{stderr}");
+    // An application 401/404 is not a Platform sign-in problem.
+    assert!(!stderr.contains("auth login"), "{stderr}");
+
+    let output = run(dir.path(), &platform.url, &["endpoints", "request", ID]);
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("HTTP 302"), "{stderr}");
+    assert!(stderr.contains("redirects are not followed"), "{stderr}");
+    assert!(stderr.contains("https://other.example/login"), "{stderr}");
+    platform.finish();
+    app.finish();
+}
+
+#[test]
+fn paths_and_headers_cannot_redirect_or_impersonate_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    for path in [
+        "https://other.example/x",
+        "//other.example/x",
+        "/\\other.example/x",
+        "relative",
+        "/page#fragment",
+    ] {
+        let output = run(
+            dir.path(),
+            "http://localhost:3000",
+            &["endpoints", "request", ID, path],
+        );
+        assert_eq!(output.status.code(), Some(1), "{path}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("absolute path"));
+    }
+    for args in [
+        vec!["-H", "X-Adapt-Authorization: Bearer forged"],
+        vec!["-H", "no-colon"],
+        vec!["--token", "a", "--new-token"],
+    ] {
+        let mut full = vec!["endpoints", "request", ID];
+        full.extend(args);
+        let output = run(dir.path(), "http://localhost:3000", &full);
+        assert_eq!(output.status.code(), Some(2), "{full:?}");
+    }
+}

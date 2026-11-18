@@ -90,12 +90,16 @@ adapt files get SANDBOX_ID /app/output.txt -
 adapt endpoints create "My app" --access authenticated
 adapt endpoints bind ENDPOINT_ID SANDBOX_ID --port 3000
 adapt endpoints get ENDPOINT_ID
+adapt endpoints request ENDPOINT_ID /path --new-token
 ```
 
 File transfers are limited to 16 MiB and guest parent directories must exist.
 Downloads refuse to overwrite local files unless `--force` is given. Hosted apps
 must listen on `0.0.0.0`. Endpoint tokens authenticate the hosted app with
 `X-Adapt-Authorization: Bearer TOKEN`; they are not Platform API credentials.
+`endpoints request` streams the app's response body to stdout (SSE included),
+sends only `-H` headers plus the endpoint token from `--token`/`--new-token`,
+never follows redirects, and exits 1 after printing the body of a non-2xx response.
 
 ## Connected MCP tools
 

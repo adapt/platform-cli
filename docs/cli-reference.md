@@ -37,7 +37,7 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | `execs` | `get`, `cancel`, `logs`, `attach` |
 | `files` | `put`, `get` |
 | `volumes` | `list`, `get`, `create`, `quota`, `delete` |
-| `endpoints` | `list`, `get`, `create`, `access`, `bind`, `unbind`, `token`, `revoke-tokens`, `delete` |
+| `endpoints` | `list`, `get`, `create`, `access`, `bind`, `unbind`, `token`, `revoke-tokens`, `request`, `delete` |
 | `images` | `list`, `get`, `import`, `pull`, `wait`, `delete` |
 | `env` | `list`, `get`, `create`, `update`, `delete` |
 | `registry` | `list`, `create`, `update`, `delete` |
@@ -308,6 +308,36 @@ adapt endpoints token ENDPOINT_ID
 
 Use the header `X-Adapt-Authorization: Bearer TOKEN` for requests to the hosted application.
 Endpoint tokens cannot authenticate Platform API requests.
+
+### Endpoint requests
+
+`adapt endpoints request` looks up the endpoint's URL, sends one request to the hosted application, and writes the response body to stdout as it arrives.
+The path is appended to the endpoint's URL, defaults to `/`, and can include a query string.
+
+```sh
+# Request the application
+adapt endpoints request ENDPOINT_ID
+
+# Follow a Server-Sent Events stream
+adapt endpoints request ENDPOINT_ID /events
+
+# Call an authenticated endpoint with a token from `adapt endpoints token`
+adapt endpoints request ENDPOINT_ID --token "$ENDPOINT_TOKEN"
+
+# Or create a new token for this request
+adapt endpoints request ENDPOINT_ID --new-token
+```
+
+Use `-X` for the method, `-H "Name: value"` for application headers, and `-d` for a body (inline, `@file`, or `-` for stdin).
+The command sends no `Content-Type` unless you pass one with `-H`.
+
+The application receives only your headers and, with `--token` or `--new-token`, `X-Adapt-Authorization`.
+The CLI's Platform credentials are used only to look up the endpoint and create a token, and are never sent to the application.
+An `Authorization` header that you pass with `-H` goes to the application unchanged.
+Redirects are not followed.
+
+The command waits up to `--timeout` seconds for the response headers, and then up to `--timeout` seconds between parts of the body.
+If the status is not 2xx (including a redirect), the CLI prints the body and then exits with code 1.
 
 To disconnect the endpoint from the sandbox, run:
 

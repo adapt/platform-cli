@@ -1,5 +1,6 @@
-use crate::input::{ResourceRef, image_name, pair, search_text};
+use crate::input::{ResourceRef, header, image_name, pair, search_text};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use reqwest::header::{HeaderName, HeaderValue};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -486,6 +487,34 @@ pub enum EndpointCommand {
     Delete {
         id: ResourceRef,
     },
+    /// Send an HTTP request to the hosted application and stream its response body
+    #[command(
+        after_help = "The application receives only your headers and, with --token or --new-token, X-Adapt-Authorization.\nPlatform credentials are never sent to it, and redirects are not followed.\nThe body is written to stdout as it arrives; a non-2xx status prints the body, then exits 1."
+    )]
+    Request(EndpointRequest),
+}
+
+#[derive(Args)]
+pub struct EndpointRequest {
+    /// Full endpoint UUID or an unambiguous ID prefix
+    pub id: ResourceRef,
+    /// Path and optional query on the endpoint, e.g. /events?since=1
+    #[arg(default_value = "/")]
+    pub path: String,
+    #[arg(long, short = 'X', default_value = "GET", value_parser = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])]
+    pub method: String,
+    /// Application header as "Name: value" (repeatable)
+    #[arg(long = "header", short = 'H', value_name = "HEADER", value_parser = header)]
+    pub headers: Vec<(HeaderName, HeaderValue)>,
+    /// Request body: literal text, @file, or - for stdin
+    #[arg(long, short = 'd')]
+    pub data: Option<String>,
+    /// Endpoint access token for an authenticated endpoint
+    #[arg(long, conflicts_with = "new_token")]
+    pub token: Option<String>,
+    /// Create a new endpoint access token and use it for this request
+    #[arg(long)]
+    pub new_token: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

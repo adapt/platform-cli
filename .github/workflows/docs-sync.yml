@@ -1,0 +1,35 @@
+name: Docs sync
+
+# Sends each merged PR to the Adapt docs sync automation, which opens a docs PR when one is needed.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Send the merged PR to the docs sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          WEBHOOK_URL: ${{ secrets.DOCS_SYNC_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.DOCS_SYNC_WEBHOOK_SECRET }}
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" \
+            --jq '[.[] | select(.merged_at != null and .base.ref == "main")][0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "No merged PR for $SHA."
+            exit 0
+          fi
+          jq -n --arg repository "$GITHUB_REPOSITORY" --argjson pull_request "$pr" --arg sha "$SHA" \
+            '{repository: $repository, pull_request: $pull_request, sha: $sha}' |
+            curl --fail-with-body --silent --show-error --request POST "$WEBHOOK_URL" \
+              --header "Authorization: Bearer $WEBHOOK_SECRET" \
+              --header "Content-Type: application/json" \
+              --data @-

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use reqwest::header::{HeaderName, HeaderValue};
 use serde_json::{Map, Value};
 use std::{
     fmt,
@@ -70,17 +71,37 @@ pub fn bytes(path: &Path, max: u64) -> Result<Vec<u8>> {
     Ok(result)
 }
 
-/// JSON is accepted inline, from @file, or from stdin with '-'.
-pub fn json(source: &str) -> Result<Value> {
-    let bytes = if source == "-" {
-        bytes(Path::new("-"), MAX_FILE_BYTES)?
+/// Data is accepted inline, from @file, or from stdin with '-'.
+pub fn data(source: &str) -> Result<Vec<u8>> {
+    if source == "-" {
+        bytes(Path::new("-"), MAX_FILE_BYTES)
     } else if let Some(path) = source.strip_prefix('@') {
-        bytes(Path::new(path), MAX_FILE_BYTES)?
+        bytes(Path::new(path), MAX_FILE_BYTES)
     } else {
-        source.as_bytes().to_vec()
-    };
-    serde_json::from_slice(&bytes)
+        Ok(source.as_bytes().to_vec())
+    }
+}
+
+pub fn json(source: &str) -> Result<Value> {
+    serde_json::from_slice(&data(source)?)
         .context("Expected valid JSON (inline, @file.json, or - for stdin)")
+}
+
+/// An application header given as "Name: value". The endpoint token header is
+/// reserved for --token and --new-token. Errors never repeat the value, which may
+/// be a credential.
+pub fn header(value: &str) -> Result<(HeaderName, HeaderValue)> {
+    let (name, value) = value.split_once(':').context("Use -H \"Name: value\"")?;
+    let name = HeaderName::from_bytes(name.trim().as_bytes())
+        .ok()
+        .context("Invalid header name in -H")?;
+    if name == "x-adapt-authorization" {
+        bail!("Pass the endpoint token with --token or --new-token, not -H");
+    }
+    let value = HeaderValue::from_str(value.trim())
+        .ok()
+        .with_context(|| format!("Invalid value for header {name}"))?;
+    Ok((name, value))
 }
 
 pub fn object(source: Option<&str>) -> Result<Value> {

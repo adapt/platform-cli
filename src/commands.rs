@@ -381,8 +381,7 @@ async fn sandbox_usage(api: &Api, id: input::ResourceRef, hours: String, json: b
         )
         .await?;
     if output::tables(json) {
-        let row = usage_row(&usage, &hours);
-        output::table(&mut io::stdout().lock(), &USAGE_COLUMNS, &[row])?;
+        write_usage(&mut io::stdout().lock(), &usage, &hours)?;
     } else {
         output::print(&usage, json)?;
     }
@@ -398,6 +397,22 @@ const USAGE_COLUMNS: [&str; 7] = [
     "memory",
     "avg memory",
 ];
+
+/// Writes one table row, then a note when the totals include migrated allocation
+/// estimates, which would otherwise look the same as measurements.
+fn write_usage(out: &mut impl Write, usage: &Value, hours: &str) -> io::Result<()> {
+    output::table(out, &USAGE_COLUMNS, &[usage_row(usage, hours)])?;
+    match usage["totals"]["estimatedIntervals"].as_u64() {
+        None | Some(0) => Ok(()),
+        Some(n) => {
+            let plural = if n == 1 { "" } else { "s" };
+            writeln!(
+                out,
+                "\nIncludes {n} interval{plural} estimated from allocated resources, not measured."
+            )
+        }
+    }
+}
 
 /// Converts exact usage totals to readable units. Values without any observed
 /// time are null (shown as —), because zero coverage is not evidence of idling.
@@ -992,7 +1007,7 @@ mod tests {
 
     fn render(usage: Value, hours: &str) -> String {
         let mut out = Vec::new();
-        output::table(&mut out, &USAGE_COLUMNS, &[usage_row(&usage, hours)]).unwrap();
+        write_usage(&mut out, &usage, hours).unwrap();
         String::from_utf8(out).unwrap()
     }
 
@@ -1011,6 +1026,24 @@ mod tests {
                 "complete  6h 12m of 24h  7.50 CPU-h  1.21 vCPU  6h 12m of 24h    11.16 GiB-h  1.8 GiB   \n",
             )
         );
+    }
+
+    #[test]
+    fn usage_flags_allocation_estimates_under_the_table() {
+        let usage = |estimated: u64| {
+            json!({"status":"complete","totals":{
+                "cpuNanoseconds":"3600000000000","residentByteMilliseconds":"0",
+                "observedMs":3600000,"memoryObservedMs":0,"estimatedIntervals":estimated
+            }})
+        };
+        let note = "\nIncludes 3 intervals estimated from allocated resources, not measured.\n";
+        assert!(render(usage(3), "24").ends_with(note));
+        assert!(
+            render(usage(1), "24").ends_with(
+                "Includes 1 interval estimated from allocated resources, not measured.\n"
+            )
+        );
+        assert_eq!(render(usage(0), "24").lines().count(), 2);
     }
 
     #[test]

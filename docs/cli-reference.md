@@ -242,6 +242,7 @@ Shows measured CPU and resident memory for the last hour (default) or 24 hours.
 Each can be shorter than the requested window, and memory coverage can differ from CPU coverage.
 For example, one hour of CPU data and six minutes of memory data show `1h of 1h` and `6m of 1h`, respectively.
 A dash means nothing was measured, not zero usage.
+A note under the table counts intervals that Platform estimated from allocated resources instead of measuring.
 Use `--json` for the exact Platform totals and chart points.
 
 ### Executions in an existing sandbox

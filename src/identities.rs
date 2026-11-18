@@ -14,7 +14,10 @@ use crate::{
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::{Method, StatusCode};
 use serde_json::{Map, Value, json};
-use std::io::{self, Write};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::{self, Write},
+};
 use uuid::Uuid;
 
 const ROOT: &str = "/v1/identities";
@@ -369,7 +372,16 @@ async fn save_from(
     changes: Map<String, Value>,
 ) -> Result<Value> {
     let body = merged(current, changes)?;
-    if unchanged(current, &body) {
+    // Supplied grants are compared last, because that needs the caller's member ID.
+    let grants_unchanged = || async {
+        match body.get("grants") {
+            None => Ok(true),
+            Some(grants) => {
+                Ok::<_, anyhow::Error>(same_grants(current, grants, caller_member(api).await?))
+            }
+        }
+    };
+    if unchanged(current, &body) && grants_unchanged().await? {
         eprintln!(
             "The identity already has these settings. Nothing was saved, and its sessions continue."
         );
@@ -382,14 +394,83 @@ async fn save_from(
     Ok(saved)
 }
 
-/// True when every field the save would send already has that value. Supplied
-/// `grants` never match, because responses add each member's name and email.
+/// True when every configuration field the save would send already has that
+/// value. `grants` is compared separately by `same_grants`.
 fn unchanged(current: &Value, body: &Value) -> bool {
     body.as_object().is_some_and(|fields| {
-        fields
-            .iter()
-            .all(|(field, value)| field == "version" || current.get(field) == Some(value))
+        fields.iter().all(|(field, value)| {
+            matches!(field.as_str(), "version" | "grants") || current.get(field) == Some(value)
+        })
     })
+}
+
+/// Whether supplied `grants` leave member access as it is. Platform keeps the
+/// caller's own grant, gives each listed member its access, and removes every
+/// other member, so the comparison ignores order and the name and email fields
+/// that responses add. Input Platform would reject, such as a duplicate member or
+/// a different access for the caller, counts as a change so its error is shown.
+fn same_grants(current: &Value, supplied: &Value, me: Uuid) -> bool {
+    let me = me.to_string();
+    let access = |grant: &Value| (grant["canAssume"] == true, grant["canManage"] == true);
+    let member = |grant: &Value| grant["memberId"].as_str().map(str::to_ascii_lowercase);
+    let held: BTreeMap<String, (bool, bool)> = current["grants"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|grant| Some((member(grant)?, access(grant))))
+        .filter(|(_, access)| *access != (false, false))
+        .collect();
+    let mine = held.get(&me).copied().unwrap_or((false, false));
+    let Some(supplied) = supplied.as_array() else {
+        return false;
+    };
+    let mut seen = BTreeSet::new();
+    let mut wanted = BTreeMap::new();
+    for grant in supplied {
+        let Some(id) = member(grant) else {
+            return false;
+        };
+        if !seen.insert(id.clone()) || (id == me && access(grant) != mine) {
+            return false;
+        }
+        if id != me && access(grant) != (false, false) {
+            wanted.insert(id, access(grant));
+        }
+    }
+    if mine != (false, false) {
+        wanted.insert(me, mine);
+    }
+    wanted == held
+}
+
+/// The caller's member ID in the selected organization.
+async fn caller_member(api: &Api) -> Result<Uuid> {
+    let caller = api.get("/v1/whoami").await?;
+    let user = caller["userId"]
+        .as_str()
+        .context("Platform did not return the signed-in user's ID")?;
+    let organization = api
+        .organization
+        .as_deref()
+        .context("Select an organization with `adapt org use ID` or --org ID")?;
+    let page = api
+        .json(
+            Method::GET,
+            "/v1/auth/organization/list-members",
+            None,
+            &[
+                ("organizationId".into(), organization.into()),
+                ("filterField".into(), "userId".into()),
+                ("filterValue".into(), user.into()),
+            ],
+            None,
+        )
+        .await?;
+    page["members"]
+        .as_array()
+        .and_then(|members| members.iter().find(|row| row["userId"] == user))
+        .context("You are not a member of this organization")
+        .and_then(resource_id)
 }
 
 fn merged(current: &Value, mut changes: Map<String, Value>) -> Result<Value> {
@@ -735,7 +816,8 @@ mod tests {
             &current,
             &json!({"version": 2, "enabled": false, "name": "bot"})
         ));
-        assert!(!unchanged(&current, &json!({"version": 2, "grants": []})));
+        // Grants are compared by `same_grants`, which needs the caller's member ID.
+        assert!(unchanged(&current, &json!({"version": 2, "grants": []})));
     }
 
     #[test]
@@ -811,5 +893,69 @@ mod tests {
         assert_eq!(session_row(&revoked)["status"], "revoked");
         let ended = json!({"active": false, "revokedAt": null});
         assert_eq!(session_row(&ended)["status"], "inactive");
+    }
+
+    #[test]
+    fn grants_compare_by_the_access_platform_would_keep() {
+        let me: Uuid = "00000000-0000-4000-8000-000000000000".parse().unwrap();
+        let (m0, m1, m2) = (
+            me.to_string(),
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        );
+        let grant = |id: &str, assume: bool, manage: bool| json!({"memberId": id, "canAssume": assume, "canManage": manage});
+        let current = json!({"grants": [
+            {"memberId": m0, "canAssume": true, "canManage": true, "name": "Me", "email": "me@x"},
+            {"memberId": m1, "canAssume": true, "canManage": false, "name": "Ana", "email": "ana@x"},
+        ]});
+        let same = |supplied: Value| same_grants(&current, &supplied, me);
+        assert!(same(json!([grant(m1, true, false)])), "the caller left out");
+        assert!(
+            same(json!([grant(&m0, true, true), grant(m1, true, false)])),
+            "the caller repeated"
+        );
+        assert!(
+            same(json!([
+                grant(&m1.to_uppercase(), true, false),
+                grant(m2, false, false)
+            ])),
+            "case and no-access entries"
+        );
+        assert!(
+            !same(json!([grant(&m0, true, false), grant(m1, true, false)])),
+            "the caller's own access changed"
+        );
+        assert!(!same(json!([])), "a member removed");
+        assert!(
+            !same(json!([grant(m1, true, true)])),
+            "a member's access changed"
+        );
+        assert!(
+            !same(json!([grant(m1, true, false), grant(m2, true, false)])),
+            "a member added"
+        );
+        assert!(
+            !same(json!([grant(m1, true, false), grant(m1, true, false)])),
+            "a duplicate member"
+        );
+        assert!(
+            !same(json!([grant(m2, false, false), grant(m2, true, false)])),
+            "a duplicate after a no-access entry"
+        );
+        assert!(!same(json!({"memberId": m1})), "not a list");
+
+        // An admin managing an identity without a grant of their own.
+        let without_mine =
+            json!({"grants": [{"memberId": m1, "canAssume": true, "canManage": false}]});
+        assert!(same_grants(
+            &without_mine,
+            &json!([grant(m1, true, false), grant(&m0, false, false)]),
+            me
+        ));
+        assert!(!same_grants(
+            &without_mine,
+            &json!([grant(&m0, true, false)]),
+            me
+        ));
     }
 }

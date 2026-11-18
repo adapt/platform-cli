@@ -549,6 +549,8 @@ The CLI looks names up among the identities that you can assume or manage.
 `update` changes only the fields in its JSON and keeps the others.
 A top-level field replaces its whole value, so `permissions` replaces every resource's actions.
 Include `version` to refuse the change if the identity has changed since you read it.
+Supplied `grants` set every other member's access; Platform keeps your own.
+The CLI compares them by each member's access, so applying the same list again saves nothing.
 `enable` and `disable` change only `enabled`.
 
 Platform ends an identity's active sessions when its settings, permissions, or member access change.

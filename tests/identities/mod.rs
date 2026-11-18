@@ -8,6 +8,8 @@ const OTHER: &str = "44444444-4444-4444-8444-444444444444";
 const MEMBER: &str = "55555555-5555-4555-8555-555555555555";
 const CONNECTION: &str = "66666666-6666-4666-8666-666666666666";
 const SESSION: &str = "77777777-7777-4777-8777-777777777777";
+const USER: &str = "88888888-8888-4888-8888-888888888888";
+const SELF: &str = "99999999-9999-4999-8999-999999999999";
 const TOKEN: &str = "adapt_identity_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 /// Expects one authenticated request and answers with `status` and `reply`.
@@ -251,6 +253,8 @@ fn update_passes_grants_through_only_when_supplied() {
             200,
             Some(detail()),
         ),
+        whoami(),
+        own_membership(),
         call(
             "PUT",
             format!("/v1/identities/{ID}"),
@@ -999,4 +1003,91 @@ fn a_terminal_shows_the_whole_identity_even_without_connections() {
         assert!(text.contains("\"connections\": []"), "{text}");
         server.finish();
     }
+}
+
+fn whoami() -> Handler {
+    call(
+        "GET",
+        "/v1/whoami".into(),
+        None,
+        200,
+        Some(json!({"type": "session", "userId": USER, "organizationId": ORG})),
+    )
+}
+
+fn own_membership() -> Handler {
+    call(
+        "GET",
+        format!(
+            "/v1/auth/organization/list-members?organizationId={ORG}&filterField=userId&filterValue={USER}"
+        ),
+        None,
+        200,
+        Some(json!({"members": [{"id": SELF, "userId": USER}], "total": 1})),
+    )
+}
+
+#[test]
+fn reapplying_the_same_grants_is_not_saved() {
+    // Responses add name and email, list in any order, and include the caller,
+    // whose own grant Platform keeps when the input leaves it out.
+    let mut current = detail();
+    current["grants"] = json!([
+        {"memberId": MEMBER, "canAssume": true, "canManage": false, "name": "Ana", "email": "ana@example.com"},
+        {"memberId": SELF, "canAssume": true, "canManage": true, "name": "Me", "email": "me@example.com"},
+    ]);
+    let server = Server::start(vec![
+        call(
+            "GET",
+            format!("/v1/identities/{ID}"),
+            None,
+            200,
+            Some(current),
+        ),
+        whoami(),
+        own_membership(),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    let data = json!({"grants": [
+        {"memberId": OTHER, "canAssume": false, "canManage": false},
+        {"memberId": MEMBER.to_uppercase(), "canAssume": true, "canManage": false},
+    ]})
+    .to_string();
+    let output = run(
+        dir.path(),
+        &server.url,
+        &["identities", "update", ID, "--data", &data],
+    );
+    success(&output);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Nothing was saved"));
+    assert_eq!(server.finish().len(), 3);
+}
+
+#[test]
+fn grants_with_other_changes_save_without_looking_up_the_caller() {
+    let grants = json!([{"memberId": MEMBER, "canAssume": true, "canManage": true}]);
+    let server = Server::start(vec![
+        call(
+            "GET",
+            format!("/v1/identities/{ID}"),
+            None,
+            200,
+            Some(detail()),
+        ),
+        call(
+            "PUT",
+            format!("/v1/identities/{ID}"),
+            Some(saved(json!({"grants": grants, "description": "New"}))),
+            200,
+            Some(detail()),
+        ),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    let data = json!({"grants": grants, "description": "New"}).to_string();
+    success(&run(
+        dir.path(),
+        &server.url,
+        &["identities", "update", ID, "--data", &data],
+    ));
+    assert_eq!(server.finish().len(), 2);
 }

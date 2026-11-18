@@ -88,6 +88,8 @@ Identity routes come from platform `640c00b`.
 Identity commands resolve names with `GET /v1/identities` and member emails with
 `/v1/auth/organization/list-members`, because identity routes accept only full IDs.
 Updates read the identity first and send its whole configuration with the change.
+To compare supplied grants, they look up your member ID with `/v1/whoami` and a member list
+filtered by your user ID.
 
 Auth commands use `/v1/auth/device/code`, `/device/token`, `/get-session`, and `/sign-out`.
 Organization commands use Better Auth's `/v1/auth/organization/*` routes; organization

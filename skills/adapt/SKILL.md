@@ -51,6 +51,7 @@ adapt images list --name IMAGE_NAME --status ready --all --json
 adapt sandbox sh --image ubuntu:24.04 -- uname -a
 adapt sandbox sh --image-id IMAGE_ID --cpu 2 --memory 2048 -- /bin/sh -lc 'echo hello; uname -a'
 adapt sandbox create --image-id IMAGE_ID --wait
+adapt sandbox usage SANDBOX_ID --hours 24 --json
 adapt exec SANDBOX_ID --cwd /app -- /bin/sh -lc 'npm test'
 ```
 

@@ -18,6 +18,7 @@ use std::{
     path::Path,
     time::Duration,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
 use uuid::Uuid;
 
@@ -657,7 +658,11 @@ async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
     {
         bail!("Use an absolute path such as /events, without a host or fragment");
     }
-    let body = args.data.as_deref().map(input::data).transpose()?;
+    let mut headers = HeaderMap::new();
+    for header in &args.headers {
+        let (name, value) = input::header(header)?;
+        headers.append(name, value);
+    }
     let endpoint = api.get(&format!("/v1/ingresses/{}", args.id)).await?;
     let base = Url::parse(endpoint["url"].as_str().context("Endpoint has no URL")?)
         .context("Endpoint has an invalid URL")?;
@@ -684,10 +689,6 @@ async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
     } else {
         args.token
     };
-    let mut headers = HeaderMap::new();
-    for (name, value) in args.headers {
-        headers.append(name, value);
-    }
     if let Some(token) = token {
         if token.is_empty() || token.chars().any(|c| c.is_whitespace() || c == ',') {
             bail!("Invalid endpoint token");
@@ -702,23 +703,42 @@ async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
         .client
         .request(args.method.parse()?, url)
         .headers(headers);
-    if let Some(body) = body {
-        request = request.body(body);
+    // Stdin and stdout use tokio's async I/O so that Ctrl-C works while either is blocked.
+    match args.data.as_deref() {
+        Some("-") => {
+            let mut body = Vec::new();
+            let limit = input::MAX_FILE_BYTES;
+            tokio::io::stdin()
+                .take(limit + 1)
+                .read_to_end(&mut body)
+                .await?;
+            if body.len() as u64 > limit {
+                bail!("Input exceeds the {limit}-byte limit");
+            }
+            request = request.body(body);
+        }
+        Some(source) => request = request.body(input::data(source)?),
+        None => {}
     }
+    // Error URLs can carry credentials in their query, so they are removed.
     let response = tokio::time::timeout(api.timeout, request.send())
         .await
         .context("Timed out waiting for the endpoint to respond")?
+        .map_err(reqwest::Error::without_url)
         .context("Endpoint request failed")?;
     let status = response.status();
     let location = response.headers().get(LOCATION).cloned();
     let mut stream = response.bytes_stream();
+    let mut out = tokio::io::stdout();
     while let Some(chunk) = tokio::time::timeout(api.timeout, stream.next())
         .await
         .context("Endpoint response was idle for longer than --timeout")?
     {
-        let mut out = io::stdout().lock();
-        out.write_all(&chunk.context("Endpoint response was interrupted")?)?;
-        out.flush()?;
+        let chunk = chunk
+            .map_err(reqwest::Error::without_url)
+            .context("Endpoint response was interrupted")?;
+        out.write_all(&chunk).await?;
+        out.flush().await?;
     }
     if status.is_success() {
         return Ok(0);

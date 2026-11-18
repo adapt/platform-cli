@@ -16,6 +16,8 @@ fn spawn(dir: &std::path::Path, platform: &Server, args: &[&str]) -> Child {
         .env("ADAPT_TOKEN", "test-token")
         .env("ADAPT_ORG_ID", ORG)
         .args(args)
+        // Held open until the child is dropped, so `-d -` waits for input.
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -241,14 +243,120 @@ fn paths_and_headers_cannot_redirect_or_impersonate_credentials() {
         assert_eq!(output.status.code(), Some(1), "{path}");
         assert!(String::from_utf8_lossy(&output.stderr).contains("absolute path"));
     }
-    for args in [
-        vec!["-H", "X-Adapt-Authorization: Bearer forged"],
-        vec!["-H", "no-colon"],
-        vec!["--token", "a", "--new-token"],
+    // Rejected headers may hold credentials, so errors never repeat them.
+    for header in [
+        "X-Adapt-Authorization: Bearer header-secret",
+        "Authorization: Bearer header-secret\u{1}",
+        "header-secret",
     ] {
-        let mut full = vec!["endpoints", "request", ID];
-        full.extend(args);
-        let output = run(dir.path(), "http://localhost:3000", &full);
-        assert_eq!(output.status.code(), Some(2), "{full:?}");
+        let output = run(
+            dir.path(),
+            "http://localhost:3000",
+            &["endpoints", "request", ID, "-H", header],
+        );
+        assert_eq!(output.status.code(), Some(1), "{header}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stderr.contains("header-secret"), "{stderr}");
     }
+    let output = run(
+        dir.path(),
+        "http://localhost:3000",
+        &["endpoints", "request", ID, "--token", "a", "--new-token"],
+    );
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn transport_errors_do_not_print_the_request_url() {
+    // Nothing listens on this port once the listener is dropped.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let platform = Server::start(vec![step(
+        "GET",
+        format!("/v1/ingresses/{ID}"),
+        None,
+        json!({"id":ID,"url":format!("http://{closed}/")}),
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    let output = run(
+        dir.path(),
+        &platform.url,
+        &["endpoints", "request", ID, "/api?token=query-secret"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Endpoint request failed"), "{stderr}");
+    assert!(!stderr.contains("query-secret"), "{stderr}");
+    platform.finish();
+}
+
+/// A Platform endpoint lookup that reports when it arrives.
+#[cfg(unix)]
+fn lookup(url: String, seen: mpsc::Sender<()>) -> Handler {
+    let reply = step(
+        "GET",
+        format!("/v1/ingresses/{ID}"),
+        None,
+        json!({"id":ID,"url":url}),
+    );
+    Box::new(move |request| {
+        let reply = reply(request);
+        seen.send(()).unwrap();
+        reply
+    })
+}
+
+/// Sends Ctrl-C after the lookup, once the CLI has had time to block, and returns
+/// the exit code. Fails instead of hanging if Ctrl-C does not stop the CLI.
+#[cfg(unix)]
+fn interrupt(mut child: Child, looked_up: mpsc::Receiver<()>) -> Option<i32> {
+    // While the lookup is pending, the CLI's Ctrl-C handler is already installed.
+    looked_up.recv_timeout(Duration::from_secs(10)).unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGINT) }, 0);
+    for _ in 0..100 {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status.code();
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    child.kill().unwrap();
+    panic!("Ctrl-C did not stop the request");
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_a_request_waiting_for_stdin() {
+    let (seen, looked_up) = mpsc::channel();
+    // The body never ends, so the endpoint is never contacted.
+    let platform = Server::start(vec![lookup("http://127.0.0.1:9/".into(), seen)]);
+    let dir = tempfile::tempdir().unwrap();
+    let child = spawn(
+        dir.path(),
+        &platform,
+        &["endpoints", "request", ID, "-d", "-"],
+    );
+    assert_eq!(interrupt(child, looked_up), Some(130));
+    platform.finish();
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_a_request_whose_stdout_is_full() {
+    let app = Server::script(vec![Box::new(|mut socket| {
+        let request = read_request(&mut socket);
+        // Far more than a pipe holds: the CLI blocks writing to its unread stdout.
+        let _ = write!(socket, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+        let _ = socket.write_all(&vec![b'x'; 8 << 20]);
+        request
+    })]);
+    let (seen, looked_up) = mpsc::channel();
+    let platform = Server::start(vec![lookup(format!("{}/", app.url), seen)]);
+    let dir = tempfile::tempdir().unwrap();
+    let child = spawn(dir.path(), &platform, &["endpoints", "request", ID]);
+    assert_eq!(interrupt(child, looked_up), Some(130));
+    platform.finish();
+    app.finish();
 }

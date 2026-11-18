@@ -88,14 +88,19 @@ pub fn json(source: &str) -> Result<Value> {
 }
 
 /// An application header given as "Name: value". The endpoint token header is
-/// reserved for --token and --new-token.
-pub fn header(value: &str) -> Result<(HeaderName, HeaderValue), String> {
-    let (name, value) = value.split_once(':').ok_or("Use \"Name: value\"")?;
-    let name = HeaderName::from_bytes(name.trim().as_bytes()).map_err(|_| "Invalid header name")?;
+/// reserved for --token and --new-token. Errors never repeat the value, which may
+/// be a credential.
+pub fn header(value: &str) -> Result<(HeaderName, HeaderValue)> {
+    let (name, value) = value.split_once(':').context("Use -H \"Name: value\"")?;
+    let name = HeaderName::from_bytes(name.trim().as_bytes())
+        .ok()
+        .context("Invalid header name in -H")?;
     if name == "x-adapt-authorization" {
-        return Err("Pass the endpoint token with --token or --new-token".into());
+        bail!("Pass the endpoint token with --token or --new-token, not -H");
     }
-    let value = HeaderValue::from_str(value.trim()).map_err(|_| "Invalid header value")?;
+    let value = HeaderValue::from_str(value.trim())
+        .ok()
+        .with_context(|| format!("Invalid value for header {name}"))?;
     Ok((name, value))
 }
 

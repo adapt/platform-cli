@@ -1,6 +1,5 @@
-use crate::input::{ResourceRef, header, image_name, pair, search_text};
+use crate::input::{ResourceRef, image_name, pair, search_text};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use reqwest::header::{HeaderName, HeaderValue};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -504,8 +503,9 @@ pub struct EndpointRequest {
     #[arg(long, short = 'X', default_value = "GET", value_parser = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])]
     pub method: String,
     /// Application header as "Name: value" (repeatable)
-    #[arg(long = "header", short = 'H', value_name = "HEADER", value_parser = header)]
-    pub headers: Vec<(HeaderName, HeaderValue)>,
+    // Parsed by the command: clap's errors would repeat a rejected value, which may hold a credential.
+    #[arg(long = "header", short = 'H', value_name = "HEADER")]
+    pub headers: Vec<String>,
     /// Request body: literal text, @file, or - for stdin
     #[arg(long, short = 'd')]
     pub data: Option<String>,

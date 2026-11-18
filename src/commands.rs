@@ -389,11 +389,12 @@ async fn sandbox_usage(api: &Api, id: input::ResourceRef, hours: String, json: b
     Ok(0)
 }
 
-const USAGE_COLUMNS: [&str; 6] = [
+const USAGE_COLUMNS: [&str; 7] = [
     "status",
-    "observed",
+    "cpu observed",
     "cpu",
     "avg cpu",
+    "memory observed",
     "memory",
     "avg memory",
 ];
@@ -414,9 +415,10 @@ fn usage_row(usage: &Value, hours: &str) -> Value {
     let gib = f64::from(1u32 << 30);
     json!({
         "status": usage["status"],
-        "observed": format!("{} of {hours}h", duration(observed)),
+        "cpu observed": format!("{} of {hours}h", duration(observed)),
         "cpu": (observed > 0.0).then(|| format!("{:.2} CPU-h", cpu / 3.6e12)),
         "avg cpu": (observed > 0.0).then(|| format!("{:.2} vCPU", cpu / (observed * 1e6))),
+        "memory observed": format!("{} of {hours}h", duration(ram_observed)),
         "memory": (ram_observed > 0.0).then(|| format!("{:.2} GiB-h", ram / (gib * 3.6e6))),
         "avg memory": (ram_observed > 0.0).then(|| {
             let bytes = ram / ram_observed;
@@ -1005,8 +1007,25 @@ mod tests {
         assert_eq!(
             render(usage, "24"),
             concat!(
-                "STATUS    OBSERVED       CPU         AVG CPU    MEMORY       AVG MEMORY\n",
-                "complete  6h 12m of 24h  7.50 CPU-h  1.21 vCPU  11.16 GiB-h  1.8 GiB   \n",
+                "STATUS    CPU OBSERVED   CPU         AVG CPU    MEMORY OBSERVED  MEMORY       AVG MEMORY\n",
+                "complete  6h 12m of 24h  7.50 CPU-h  1.21 vCPU  6h 12m of 24h    11.16 GiB-h  1.8 GiB   \n",
+            )
+        );
+    }
+
+    #[test]
+    fn usage_shows_memory_coverage_separately_from_cpu() {
+        let usage = json!({"status":"complete","totals":{
+            "cpuNanoseconds":"3600000000000",
+            "residentByteMilliseconds":"386547056640000",
+            "observedMs":3600000,
+            "memoryObservedMs":360000
+        }});
+        assert_eq!(
+            render(usage, "1"),
+            concat!(
+                "STATUS    CPU OBSERVED  CPU         AVG CPU    MEMORY OBSERVED  MEMORY      AVG MEMORY\n",
+                "complete  1h of 1h      1.00 CPU-h  1.00 vCPU  6m of 1h         0.10 GiB-h  1.0 GiB   \n",
             )
         );
     }
@@ -1018,7 +1037,7 @@ mod tests {
         }});
         assert_eq!(
             render(empty, "1").lines().nth(1),
-            Some("pending  0s of 1h  —    —        —       —         ")
+            Some("pending  0s of 1h      —    —        0s of 1h         —       —         ")
         );
         // CPU can be observed while memory sampling is still unavailable.
         let no_memory = json!({"status":"incomplete","totals":{
@@ -1027,7 +1046,9 @@ mod tests {
         }});
         assert_eq!(
             render(no_memory, "1").lines().nth(1),
-            Some("incomplete  58m of 1h  0.42 CPU-h  0.43 vCPU  —       —         ")
+            Some(
+                "incomplete  58m of 1h     0.42 CPU-h  0.43 vCPU  0s of 1h         —       —         "
+            )
         );
     }
 }

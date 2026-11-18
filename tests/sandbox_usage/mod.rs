@@ -3,7 +3,12 @@ use serde_json::json;
 
 #[test]
 fn usage_sends_the_window_and_passes_json_through() {
-    let usage = json!({"status":"live","totals":{"cpuNanoseconds":"1513600000000"},"points":[]});
+    let usage = json!({"status":"live","totals":{
+        "cpuNanoseconds":"1513600000000",
+        "residentByteMilliseconds":"386547056640000",
+        "observedMs":3600000,
+        "memoryObservedMs":360000
+    },"points":[]});
     let server = Server::start(vec![
         step(
             "GET",
@@ -21,7 +26,7 @@ fn usage_sends_the_window_and_passes_json_through() {
     let dir = tempfile::tempdir().unwrap();
     for args in [
         vec!["sandbox", "usage", ID],
-        vec!["sandbox", "usage", ID, "--hours", "24"],
+        vec!["sandbox", "usage", ID, "--hours", "24", "--json"],
     ] {
         assert_eq!(success(&run(dir.path(), &server.url, &args)), usage);
     }

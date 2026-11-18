@@ -238,7 +238,9 @@ adapt sandbox usage SANDBOX_ID --hours 24
 ```
 
 Shows measured CPU and resident memory for the last hour (default) or 24 hours.
-`OBSERVED` is the measured time that the totals cover, which can be shorter than the window.
+`CPU OBSERVED` and `MEMORY OBSERVED` show the measured time covered by their respective totals.
+Each can be shorter than the requested window, and memory coverage can differ from CPU coverage.
+For example, one hour of CPU data and six minutes of memory data show `1h of 1h` and `6m of 1h`, respectively.
 A dash means nothing was measured, not zero usage.
 Use `--json` for the exact Platform totals and chart points.
 

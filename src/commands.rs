@@ -18,7 +18,7 @@ use std::{
     path::Path,
     time::Duration,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use url::Url;
 use uuid::Uuid;
 
@@ -703,22 +703,13 @@ async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
         .client
         .request(args.method.parse()?, url)
         .headers(headers);
-    // Stdin and stdout use tokio's async I/O so that Ctrl-C works while either is blocked.
-    match args.data.as_deref() {
-        Some("-") => {
-            let mut body = Vec::new();
-            let limit = input::MAX_FILE_BYTES;
-            tokio::io::stdin()
-                .take(limit + 1)
-                .read_to_end(&mut body)
-                .await?;
-            if body.len() as u64 > limit {
-                bail!("Input exceeds the {limit}-byte limit");
-            }
-            request = request.body(body);
-        }
-        Some(source) => request = request.body(input::data(source)?),
-        None => {}
+    if let Some(source) = args.data {
+        // Even @file can block on a FIFO or device. Runtime shutdown does not wait
+        // for this worker after Ctrl-C, so neither open nor read can delay exit.
+        let body = tokio::task::spawn_blocking(move || input::data(&source))
+            .await
+            .context("Request body reader failed")??;
+        request = request.body(body);
     }
     // Error URLs can carry credentials in their query, so they are removed.
     let response = tokio::time::timeout(api.timeout, request.send())

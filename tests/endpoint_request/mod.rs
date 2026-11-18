@@ -183,6 +183,86 @@ fn authenticated_requests_send_only_the_endpoint_token() {
 }
 
 #[test]
+fn body_sources_preserve_bytes() {
+    const BODY: &[u8] = b"first\0\xff\nlast";
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("body.bin");
+    std::fs::write(&path, BODY).unwrap();
+    let mut sources = vec![
+        "-".to_owned(),
+        "@-".to_owned(),
+        format!("@{}", path.display()),
+    ];
+    if cfg!(unix) {
+        sources.push("@/dev/stdin".into());
+    }
+    for source in sources {
+        let app = Server::start(vec![Box::new(|request| {
+            assert_eq!(request.method, "POST");
+            assert_eq!(request.body, BODY);
+            assert!(!request.headers.contains_key("content-type"));
+            Reply::bytes("application/octet-stream", BODY.to_vec())
+        })]);
+        let platform = Server::start(vec![step(
+            "GET",
+            format!("/v1/ingresses/{ID}"),
+            None,
+            endpoint(&app),
+        )]);
+        let mut cmd = command(dir.path(), &platform.url);
+        cmd.env("ADAPT_TOKEN", "test-token")
+            .env("ADAPT_ORG_ID", ORG)
+            .args(["endpoints", "request", ID, "-X", "POST", "-d", &source]);
+        let output = with_stdin(cmd, BODY);
+        assert!(
+            output.status.success(),
+            "{source}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, BODY, "{source}");
+        platform.finish();
+        app.finish();
+    }
+}
+
+#[test]
+fn body_file_errors_are_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let large = dir.path().join("large.bin");
+    std::fs::File::create(&large)
+        .unwrap()
+        .set_len(16 * 1024 * 1024 + 1)
+        .unwrap();
+    for (path, message) in [
+        (dir.path().join("missing.bin"), "Cannot read"),
+        (large, "Input exceeds the 16777216-byte limit"),
+    ] {
+        let platform = Server::start(vec![step(
+            "GET",
+            format!("/v1/ingresses/{ID}"),
+            None,
+            json!({"id":ID,"url":"http://127.0.0.1:9/"}),
+        )]);
+        let output = run(
+            dir.path(),
+            &platform.url,
+            &[
+                "endpoints",
+                "request",
+                ID,
+                "-d",
+                &format!("@{}", path.display()),
+            ],
+        );
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(message), "{stderr}");
+        platform.finish();
+    }
+}
+
+#[test]
 fn error_statuses_print_the_body_and_redirects_are_not_followed() {
     let app = Server::start(vec![
         Box::new(|_| Reply {
@@ -323,23 +403,81 @@ fn interrupt(mut child: Child, looked_up: mpsc::Receiver<()>) -> Option<i32> {
         std::thread::sleep(Duration::from_millis(100));
     }
     child.kill().unwrap();
+    child.wait().unwrap();
     panic!("Ctrl-C did not stop the request");
+}
+
+#[cfg(unix)]
+fn assert_body_read_is_interruptible(source: &str) {
+    let (seen, looked_up) = mpsc::channel();
+    // The body never ends, so the endpoint is never contacted.
+    let platform = Server::start(vec![lookup("http://127.0.0.1:9/".into(), seen)]);
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = spawn(
+        dir.path(),
+        &platform,
+        &["endpoints", "request", ID, "-d", source],
+    );
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"partial body")
+        .unwrap();
+    assert_eq!(interrupt(child, looked_up), Some(130), "{source}");
+    platform.finish();
 }
 
 #[cfg(unix)]
 #[test]
 fn ctrl_c_stops_a_request_waiting_for_stdin() {
-    let (seen, looked_up) = mpsc::channel();
-    // The body never ends, so the endpoint is never contacted.
-    let platform = Server::start(vec![lookup("http://127.0.0.1:9/".into(), seen)]);
+    assert_body_read_is_interruptible("-");
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_a_request_waiting_for_stdin_via_at_dash() {
+    assert_body_read_is_interruptible("@-");
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_a_request_waiting_for_stdin_device() {
+    assert_body_read_is_interruptible("@/dev/stdin");
+}
+
+#[cfg(unix)]
+fn assert_fifo_read_is_interruptible(with_writer: bool) {
     let dir = tempfile::tempdir().unwrap();
-    let child = spawn(
-        dir.path(),
-        &platform,
-        &["endpoints", "request", ID, "-d", "-"],
+    let path = dir.path().join("body.fifo");
+    let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(
+        unsafe { libc::mkfifo(name.as_ptr(), 0o600) },
+        0,
+        "{}",
+        std::io::Error::last_os_error()
     );
-    assert_eq!(interrupt(child, looked_up), Some(130));
-    platform.finish();
+    // Without a writer, open blocks; with one held open, reading waits for EOF.
+    let _writer = with_writer.then(|| {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap()
+    });
+    assert_body_read_is_interruptible(&format!("@{}", path.display()));
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_a_request_opening_a_fifo() {
+    assert_fifo_read_is_interruptible(false);
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_a_request_reading_a_fifo() {
+    assert_fifo_read_is_interruptible(true);
 }
 
 #[cfg(unix)]

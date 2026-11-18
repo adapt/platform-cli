@@ -338,6 +338,7 @@ Redirects are not followed.
 
 The command waits up to `--timeout` seconds for the response headers, and then up to `--timeout` seconds between parts of the body.
 If the status is not 2xx (including a redirect), the CLI prints the body and then exits with code 1.
+Ctrl-C exits with code 130, including while waiting for body input from stdin, a device, or a named pipe, or while stdout is blocked.
 
 To disconnect the endpoint from the sandbox, run:
 

@@ -164,6 +164,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         },
         Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(&api, args, cli.json).await,
         Command::Sandbox(SandboxCommand::List(args)) => return list_sandboxes(&api, args, cli.json).await,
+        Command::Sandbox(SandboxCommand::Usage { id, hours }) => return sandbox_usage(&api, id, hours, cli.json).await,
         Command::Sandbox(command) => sandbox(&api, command).await?,
         Command::Exec(args) => return execute(&api, args, cli.json).await,
         Command::Execs(command) => match command {
@@ -364,6 +365,77 @@ async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
             }
         }
         SandboxCommand::Sh(_) => unreachable!("Interactive shell is dispatched separately"),
+        SandboxCommand::Usage { .. } => unreachable!("Sandbox usage is dispatched separately"),
+    }
+}
+
+async fn sandbox_usage(api: &Api, id: input::ResourceRef, hours: String, json: bool) -> Result<u8> {
+    let path = format!("/v1/sandboxes/{id}/usage");
+    let usage = api
+        .json(
+            Method::GET,
+            &path,
+            None,
+            &[("hours".into(), hours.clone())],
+            None,
+        )
+        .await?;
+    if output::tables(json) {
+        let row = usage_row(&usage, &hours);
+        output::table(&mut io::stdout().lock(), &USAGE_COLUMNS, &[row])?;
+    } else {
+        output::print(&usage, json)?;
+    }
+    Ok(0)
+}
+
+const USAGE_COLUMNS: [&str; 6] = [
+    "status",
+    "observed",
+    "cpu",
+    "avg cpu",
+    "memory",
+    "avg memory",
+];
+
+/// Converts exact usage totals to readable units. Values without any observed
+/// time are null (shown as —), because zero coverage is not evidence of idling.
+fn usage_row(usage: &Value, hours: &str) -> Value {
+    let totals = &usage["totals"];
+    let exact = |key: &str| {
+        totals[key]
+            .as_str()
+            .and_then(|text| text.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    let (cpu, ram) = (exact("cpuNanoseconds"), exact("residentByteMilliseconds"));
+    let observed = totals["observedMs"].as_f64().unwrap_or(0.0);
+    let ram_observed = totals["memoryObservedMs"].as_f64().unwrap_or(0.0);
+    let gib = f64::from(1u32 << 30);
+    json!({
+        "status": usage["status"],
+        "observed": format!("{} of {hours}h", duration(observed)),
+        "cpu": (observed > 0.0).then(|| format!("{:.2} CPU-h", cpu / 3.6e12)),
+        "avg cpu": (observed > 0.0).then(|| format!("{:.2} vCPU", cpu / (observed * 1e6))),
+        "memory": (ram_observed > 0.0).then(|| format!("{:.2} GiB-h", ram / (gib * 3.6e6))),
+        "avg memory": (ram_observed > 0.0).then(|| {
+            let bytes = ram / ram_observed;
+            if bytes < gib {
+                format!("{:.0} MiB", bytes / f64::from(1u32 << 20))
+            } else {
+                format!("{:.1} GiB", bytes / gib)
+            }
+        }),
+    })
+}
+
+fn duration(ms: f64) -> String {
+    let seconds = (ms / 1000.0) as u64;
+    match (seconds / 3600, seconds % 3600 / 60) {
+        (0, 0) => format!("{seconds}s"),
+        (0, minutes) => format!("{minutes}m"),
+        (hours, 0) => format!("{hours}h"),
+        (hours, minutes) => format!("{hours}h {minutes}m"),
     }
 }
 
@@ -909,5 +981,53 @@ async fn invitations(api: &Api, command: InvitationCommand) -> Result<Value> {
         InvitationCommand::Cancel { id } => api.post("/v1/auth/organization/cancel-invitation", &json!({"invitationId":id.to_string()})).await,
         InvitationCommand::Accept { id } => api.post("/v1/auth/organization/accept-invitation", &json!({"invitationId":id.to_string()})).await,
         InvitationCommand::Reject { id } => api.post("/v1/auth/organization/reject-invitation", &json!({"invitationId":id.to_string()})).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(usage: Value, hours: &str) -> String {
+        let mut out = Vec::new();
+        output::table(&mut out, &USAGE_COLUMNS, &[usage_row(&usage, hours)]).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn usage_converts_exact_totals_to_readable_units() {
+        let usage = json!({"status":"complete","totals":{
+            "cpuNanoseconds":"27007200000000",
+            "residentByteMilliseconds":"43138651521024000",
+            "observedMs":22320000,
+            "memoryObservedMs":22320000
+        }});
+        assert_eq!(
+            render(usage, "24"),
+            concat!(
+                "STATUS    OBSERVED       CPU         AVG CPU    MEMORY       AVG MEMORY\n",
+                "complete  6h 12m of 24h  7.50 CPU-h  1.21 vCPU  11.16 GiB-h  1.8 GiB   \n",
+            )
+        );
+    }
+
+    #[test]
+    fn usage_without_observations_shows_dashes_instead_of_zero() {
+        let empty = json!({"status":"pending","totals":{
+            "cpuNanoseconds":"0","residentByteMilliseconds":"0","observedMs":0,"memoryObservedMs":0
+        }});
+        assert_eq!(
+            render(empty, "1").lines().nth(1),
+            Some("pending  0s of 1h  —    —        —       —         ")
+        );
+        // CPU can be observed while memory sampling is still unavailable.
+        let no_memory = json!({"status":"incomplete","totals":{
+            "cpuNanoseconds":"1513600000000","residentByteMilliseconds":"0",
+            "observedMs":3520000,"memoryObservedMs":0
+        }});
+        assert_eq!(
+            render(no_memory, "1").lines().nth(1),
+            Some("incomplete  58m of 1h  0.42 CPU-h  0.43 vCPU  —       —         ")
+        );
     }
 }

@@ -256,6 +256,14 @@ pub enum SandboxCommand {
         /// Full sandbox UUID or an unambiguous ID prefix
         id: ResourceRef,
     },
+    /// Show measured CPU and resident memory over the last hour or day
+    Usage {
+        /// Full sandbox UUID or an unambiguous ID prefix
+        id: ResourceRef,
+        /// Measurement window in hours
+        #[arg(long, default_value = "1", value_parser = ["1", "24"])]
+        hours: String,
+    },
     Create(SandboxCreate),
     /// Run a login shell or command in a temporary sandbox, then delete it
     #[command(

@@ -32,7 +32,7 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | `org` | `list`, `use`, `current`, `create`, `update`, `delete` |
 | `org members` | `list`, `role`, `remove` |
 | `org invitations` | `list`, `create`, `cancel`, `accept`, `reject` |
-| `sandbox` | `list`, `get`, `create`, `sh`, `start`, `stop`, `delete`, `wait` |
+| `sandbox` | `list`, `get`, `usage`, `create`, `sh`, `start`, `stop`, `delete`, `wait` |
 | `exec` | Run a command in a sandbox |
 | `execs` | `get`, `cancel`, `logs`, `attach` |
 | `files` | `put`, `get` |
@@ -229,6 +229,18 @@ Explicit CLI options override the corresponding JSON fields.
 The `--env` and `--label` options merge entries with the JSON data.
 The `--no-expiry` option sets `ttlSeconds` to null.
 The `--run-image` option runs the image's ENTRYPOINT/CMD at startup.
+
+### Sandbox usage
+
+```sh
+adapt sandbox usage SANDBOX_ID
+adapt sandbox usage SANDBOX_ID --hours 24
+```
+
+Shows measured CPU and resident memory for the last hour (default) or 24 hours.
+`OBSERVED` is the measured time that the totals cover, which can be shorter than the window.
+A dash means nothing was measured, not zero usage.
+Use `--json` for the exact Platform totals and chart points.
 
 ### Executions in an existing sandbox
 

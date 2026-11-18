@@ -11,6 +11,7 @@ mod retries;
 mod sandbox_list;
 mod sandbox_prefixes;
 mod sandbox_sh;
+mod sandbox_usage;
 
 #[test]
 fn help_and_argument_validation() {
@@ -25,6 +26,7 @@ fn help_and_argument_validation() {
         vec!["sandbox", "create", "--image", "alpine", "--image-id", ID],
         vec!["exec", ID],
         vec!["volumes", "quota", ID],
+        vec!["sandbox", "usage", ID, "--hours", "6"],
         vec!["endpoints", "bind", ID, ID, "--port", "0"],
     ] {
         assert_eq!(

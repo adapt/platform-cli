@@ -770,7 +770,8 @@ pub struct UsageList {
     /// Sandbox runs count if they finished in that time or are still running
     #[arg(long, value_parser = ["7", "30", "90"])]
     pub days: Option<String>,
-    /// Show runs of one existing sandbox (full UUID or unambiguous ID prefix)
+    /// Show runs of one sandbox (full UUID or unambiguous ID prefix).
+    /// Full UUIDs include deleted-sandbox history; prefixes require a non-deleted sandbox
     #[arg(long)]
     pub sandbox: Option<ResourceRef>,
     #[command(flatten)]

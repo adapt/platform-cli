@@ -595,6 +595,11 @@ fn write_usage_events(out: &mut impl Write, result: &Value) -> io::Result<()> {
             "memory",
         ];
         output::table(out, &keys, &rows)?;
+        let estimated: u64 = events
+            .iter()
+            .filter_map(|event| event["usage"]["estimatedIntervals"].as_u64())
+            .sum();
+        estimated_note(out, &json!({"estimatedIntervals": estimated}))?;
     }
     output::next_page(out, result)
 }
@@ -1356,6 +1361,48 @@ mod tests {
                 ],
             ]
         );
+    }
+
+    #[test]
+    fn usage_list_flags_allocation_estimates_under_the_table() {
+        let mut events = json!({"events":[
+            {"kind":"sandbox","createdAt":"2026-11-18T14:02:11.000Z","sandboxId":ID,"status":"finished",
+             "usage":{"durationMs":3600000,"cpuNanoseconds":"1834000000000",
+                      "residentByteMilliseconds":"3865470566400000","observedMs":3600000,
+                      "memoryObservedMs":3600000,"estimatedIntervals":0}}
+        ],"nextCursor":null});
+        let measured = written(write_usage_events, events.clone());
+        assert_eq!(measured.lines().count(), 2);
+        for (count, intervals) in [(1, "1 interval"), (3, "3 intervals")] {
+            events["events"][0]["usage"]["estimatedIntervals"] = json!(count);
+            assert_eq!(
+                written(write_usage_events, events.clone()),
+                format!(
+                    "{measured}\nIncludes {intervals} estimated from allocated resources, not measured.\n"
+                )
+            );
+        }
+        events["events"][0]["usage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("estimatedIntervals");
+        assert_eq!(written(write_usage_events, events), measured);
+    }
+
+    #[test]
+    fn usage_list_counts_estimates_across_rows_before_the_next_page() {
+        let events = json!({"events":[
+            {"kind":"sandbox","usage":{"estimatedIntervals":0}},
+            {"kind":"sandbox","usage":{"estimatedIntervals":3}},
+            {"kind":"sandbox","usage":{}},
+            {"kind":"sandbox","usage":{"estimatedIntervals":1}}
+        ],"nextCursor":ID});
+        let out = written(write_usage_events, events);
+        assert_eq!(out.matches("estimated from allocated resources").count(), 1);
+        assert!(out.ends_with(&format!(
+            "\nIncludes 4 intervals estimated from allocated resources, not measured.\n\
+             \nNext page: rerun with --cursor {ID} (or use --all)\n"
+        )));
     }
 
     #[test]

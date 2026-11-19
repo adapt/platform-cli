@@ -5,6 +5,22 @@ use serde_json::json;
 // These tests verify that the CLI sends the filters unchanged and passes JSON through.
 
 #[test]
+fn list_help_distinguishes_full_sandbox_uuids_from_prefixes() {
+    let dir = tempfile::tempdir().unwrap();
+    for flag in ["-h", "--help"] {
+        let output = run(dir.path(), "http://localhost:1", &["usage", "list", flag]);
+        assert!(output.status.success());
+        let help = String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(help.contains("Full UUIDs include deleted-sandbox history"));
+        assert!(help.contains("prefixes require a non-deleted sandbox"));
+        assert!(!help.contains("one existing sandbox"));
+    }
+}
+
+#[test]
 fn list_forwards_filters() {
     let events = json!({"events":[{"id":ID,"kind":"sandbox"}],"asOf":"2026-11-19T16:20:00.000Z","nextCursor":null});
     let server = Server::start(vec![
@@ -17,6 +33,12 @@ fn list_forwards_filters() {
         step(
             "GET",
             format!("/v1/usage?limit=50&kind=sandbox&userId={KEY}&days=7&sandboxId=1111abcd"),
+            None,
+            events.clone(),
+        ),
+        step(
+            "GET",
+            format!("/v1/usage?limit=50&kind=sandbox&sandboxId={ID}"),
             None,
             events.clone(),
         ),
@@ -40,9 +62,37 @@ fn list_forwards_filters() {
             "--sandbox",
             "1111ABCD",
         ],
+        vec!["usage", "list", "--sandbox", ID],
         vec!["usage", "list", "--kind", "model", "--days", "90", "--json"],
     ] {
         assert_eq!(success(&run(dir.path(), &server.url, &args)), events);
+    }
+    server.finish();
+}
+
+#[test]
+fn list_passes_allocation_estimates_through_as_json_without_notes() {
+    let events = json!({"events":[{"id":ID,"kind":"sandbox","usage":{
+        "cpuNanoseconds":"1834000000000","residentByteMilliseconds":"3865470566400000",
+        "observedMs":3600000,"memoryObservedMs":3600000,"estimatedIntervals":3
+    }}],"nextCursor":null});
+    let server = Server::start(
+        (0..2)
+            .map(|_| {
+                step(
+                    "GET",
+                    "/v1/usage?limit=50&kind=sandbox".into(),
+                    None,
+                    events.clone(),
+                )
+            })
+            .collect(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    for args in [vec!["usage", "list"], vec!["usage", "list", "--json"]] {
+        let output = run(dir.path(), &server.url, &args);
+        assert_eq!(success(&output), events);
+        assert!(output.stderr.is_empty());
     }
     server.finish();
 }

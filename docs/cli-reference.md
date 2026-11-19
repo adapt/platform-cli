@@ -408,11 +408,13 @@ Members see only their own usage.
 Owners, admins, and API keys see the whole organization and can select one member with `--user`.
 
 `usage list` shows records newest first, one row per sandbox run or model call.
+For sandbox runs, a note under the table counts intervals in the displayed records that Platform estimated from allocated resources instead of measuring.
 Use `--kind model` for model calls; the default is `sandbox`.
 `--days` accepts `7`, `30`, or `90` and counts UTC days, including today.
 Without `--days`, the list includes all history.
 Sandbox runs count if they finished in that time or are still running.
-`--sandbox` accepts a full UUID or an ID prefix of a sandbox that still exists, and only works with sandbox usage.
+`--sandbox` accepts a full UUID or an unambiguous ID prefix, and only works with sandbox usage.
+Full UUIDs can filter historical events for deleted sandboxes; only prefixes require a non-deleted sandbox.
 
 `usage summary` totals usage per member over the last 30 UTC days, or over `--days`.
 The table adds a total row.

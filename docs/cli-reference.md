@@ -45,6 +45,7 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | `keys` | `list`, `create`, `delete` |
 | `sessions` | `list`, `revoke`, `revoke-others` |
 | `mcp` | `list`, `revoke`, `tools` |
+| `usage` | `list`, `summary` |
 | `events` | Show organization changes, or personal changes with `--personal` |
 | `health` | Test API availability, or database readiness with `--ready` |
 | `profiles` | Show saved API URLs, organizations, and credential status |
@@ -390,6 +391,37 @@ Create a sandbox with the image and variable set:
 adapt sandbox create --image-id IMAGE_ID --variable-set VARIABLE_SET_ID --wait
 ```
 
+## Metered usage
+
+```sh
+adapt usage list
+adapt usage list --kind model --days 7
+adapt usage list --sandbox SANDBOX_ID --all --json
+adapt usage summary
+adapt usage summary --kind model --days 90 --user USER_ID
+```
+
+These commands show metered sandbox runs and model calls.
+They are not an audit log of user activity.
+Members see only their own usage.
+Owners, admins, and API keys see the whole organization and can select one member with `--user`.
+
+`usage list` shows records newest first, one row per sandbox run or model call.
+Use `--kind model` for model calls; the default is `sandbox`.
+`--days` accepts `7`, `30`, or `90` and counts UTC days, including today.
+Without `--days`, the list includes all history.
+Sandbox runs count if they finished in that time or are still running.
+`--sandbox` accepts a full UUID or an ID prefix of a sandbox that still exists, and only works with sandbox usage.
+
+`usage summary` totals usage per member over the last 30 UTC days, or over `--days`.
+The table adds a total row.
+A dash means nothing was measured, not zero usage.
+Notes under the table count intervals that Platform estimated from allocated resources, and model calls that reported no token counts.
+Model token totals include calls made with your organization's own provider keys.
+To separate them, use `usage list --kind model --json` and check each call's `details.credentialSource`.
+
+Use `--json` for exact totals, daily rows, and per-model breakdowns.
+
 ## Resource IDs
 
 These resources accept full UUIDs or unique ID prefixes:
@@ -469,6 +501,7 @@ adapt sandbox list --limit 50 --cursor CURSOR
 adapt sandbox list --query web --all --json
 adapt images list --status ready
 adapt images list --name ubuntu --all
+adapt usage list --kind model --days 30 --all --json
 ```
 
 `sandbox list --query TEXT` matches names that contain TEXT, without case sensitivity.

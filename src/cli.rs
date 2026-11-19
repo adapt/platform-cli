@@ -84,6 +84,9 @@ pub enum Command {
     /// Inspect connected MCP clients and the tools the Platform MCP server provides
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Show metered sandbox and model usage (not an audit log)
+    #[command(subcommand)]
+    Usage(UsageCommand),
     /// Watch resource changes as newline-delimited JSON
     Events {
         #[arg(long)]
@@ -723,6 +726,64 @@ pub enum SessionCommand {
         id: Uuid,
     },
     RevokeOthers,
+}
+
+#[derive(Subcommand)]
+#[command(
+    after_help = "This is metered usage, not an audit log.\nMembers see only their own usage; owners, admins, and API keys see the whole organization."
+)]
+pub enum UsageCommand {
+    /// List metered sandbox runs or model calls, newest first
+    #[command(
+        visible_alias = "ls",
+        after_help = "This is metered usage, not an audit log."
+    )]
+    List(UsageList),
+    /// Total metered usage per member over the last 7, 30, or 90 UTC days
+    #[command(
+        after_help = "This is metered usage, not an audit log.\nModel token totals include calls made with your organization's own provider keys.\nTo separate them, use `usage list --kind model --json` and check each call's details.credentialSource."
+    )]
+    Summary(UsageSummary),
+}
+
+#[derive(Args)]
+pub struct UsageScope {
+    /// Kind of usage
+    #[arg(long, value_enum, default_value = "sandbox")]
+    pub kind: UsageKind,
+    /// Show one member's usage (owners, admins, and API keys only)
+    #[arg(long, value_name = "USER_ID")]
+    pub user: Option<Uuid>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum UsageKind {
+    Sandbox,
+    Model,
+}
+
+#[derive(Args)]
+pub struct UsageList {
+    #[command(flatten)]
+    pub scope: UsageScope,
+    /// Limit to the last N UTC days, including today; omit for all history.
+    /// Sandbox runs count if they finished in that time or are still running
+    #[arg(long, value_parser = ["7", "30", "90"])]
+    pub days: Option<String>,
+    /// Show runs of one existing sandbox (full UUID or unambiguous ID prefix)
+    #[arg(long)]
+    pub sandbox: Option<ResourceRef>,
+    #[command(flatten)]
+    pub page: Page,
+}
+
+#[derive(Args)]
+pub struct UsageSummary {
+    #[command(flatten)]
+    pub scope: UsageScope,
+    /// Number of UTC days to total, including today
+    #[arg(long, default_value = "30", value_parser = ["7", "30", "90"])]
+    pub days: String,
 }
 
 #[derive(Subcommand)]

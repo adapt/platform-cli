@@ -205,6 +205,8 @@ pub async fn run(cli: Cli) -> Result<u8> {
             McpCommand::List => api.get("/v1/auth/mcp/connections").await?,
             McpCommand::Revoke { id } => api.post("/v1/auth/mcp/revoke", &json!({"id":id.to_string()})).await?,
         },
+        Command::Usage(UsageCommand::List(args)) => return list_usage(&api, args, cli.json).await,
+        Command::Usage(UsageCommand::Summary(args)) => return usage_summary(&api, args, cli.json).await,
         Command::Events { personal } => return stream::events(&api, personal).await,
         Command::Health { ready } => api.get(if ready { "/ready" } else { "/health" }).await?,
         Command::Api(args) => api.json(args.method.parse()?, &args.path, args.data.as_deref().map(input::json).transpose()?.as_ref(), &args.query, args.idempotency_key.as_ref().map(|id| id.to_string()).as_deref()).await?,
@@ -398,11 +400,16 @@ const USAGE_COLUMNS: [&str; 7] = [
     "avg memory",
 ];
 
-/// Writes one table row, then a note when the totals include migrated allocation
-/// estimates, which would otherwise look the same as measurements.
+/// Writes one table row, then notes any migrated allocation estimates.
 fn write_usage(out: &mut impl Write, usage: &Value, hours: &str) -> io::Result<()> {
     output::table(out, &USAGE_COLUMNS, &[usage_row(usage, hours)])?;
-    match usage["totals"]["estimatedIntervals"].as_u64() {
+    estimated_note(out, &usage["totals"])
+}
+
+/// Notes totals that include migrated allocation estimates, which would otherwise
+/// look the same as measurements.
+fn estimated_note(out: &mut impl Write, totals: &Value) -> io::Result<()> {
+    match totals["estimatedIntervals"].as_u64() {
         None | Some(0) => Ok(()),
         Some(n) => {
             let plural = if n == 1 { "" } else { "s" };
@@ -414,33 +421,55 @@ fn write_usage(out: &mut impl Write, usage: &Value, hours: &str) -> io::Result<(
     }
 }
 
-/// Converts exact usage totals to readable units. Values without any observed
-/// time are null (shown as —), because zero coverage is not evidence of idling.
+const GIB: f64 = (1u64 << 30) as f64;
+
+/// Reads one of Platform's exact decimal totals; f64 precision suffices for display.
+fn exact(totals: &Value, key: &str) -> f64 {
+    totals[key]
+        .as_str()
+        .and_then(|text| text.parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+/// CPU-hours, or None (shown as —) without observed time, because zero coverage
+/// is not evidence of idling.
+fn cpu_hours(totals: &Value) -> Option<String> {
+    (totals["observedMs"].as_f64().unwrap_or(0.0) > 0.0)
+        .then(|| format!("{:.2} CPU-h", exact(totals, "cpuNanoseconds") / 3.6e12))
+}
+
+/// Resident GiB-hours, or None (shown as —) without observed memory time.
+fn memory_hours(totals: &Value) -> Option<String> {
+    (totals["memoryObservedMs"].as_f64().unwrap_or(0.0) > 0.0).then(|| {
+        format!(
+            "{:.2} GiB-h",
+            exact(totals, "residentByteMilliseconds") / (GIB * 3.6e6)
+        )
+    })
+}
+
+/// Converts exact usage totals to readable units.
 fn usage_row(usage: &Value, hours: &str) -> Value {
     let totals = &usage["totals"];
-    let exact = |key: &str| {
-        totals[key]
-            .as_str()
-            .and_then(|text| text.parse::<f64>().ok())
-            .unwrap_or(0.0)
-    };
-    let (cpu, ram) = (exact("cpuNanoseconds"), exact("residentByteMilliseconds"));
+    let (cpu, ram) = (
+        exact(totals, "cpuNanoseconds"),
+        exact(totals, "residentByteMilliseconds"),
+    );
     let observed = totals["observedMs"].as_f64().unwrap_or(0.0);
     let ram_observed = totals["memoryObservedMs"].as_f64().unwrap_or(0.0);
-    let gib = f64::from(1u32 << 30);
     json!({
         "status": usage["status"],
         "cpu observed": format!("{} of {hours}h", duration(observed)),
-        "cpu": (observed > 0.0).then(|| format!("{:.2} CPU-h", cpu / 3.6e12)),
+        "cpu": cpu_hours(totals),
         "avg cpu": (observed > 0.0).then(|| format!("{:.2} vCPU", cpu / (observed * 1e6))),
         "memory observed": format!("{} of {hours}h", duration(ram_observed)),
-        "memory": (ram_observed > 0.0).then(|| format!("{:.2} GiB-h", ram / (gib * 3.6e6))),
+        "memory": memory_hours(totals),
         "avg memory": (ram_observed > 0.0).then(|| {
             let bytes = ram / ram_observed;
-            if bytes < gib {
+            if bytes < GIB {
                 format!("{:.0} MiB", bytes / f64::from(1u32 << 20))
             } else {
-                format!("{:.1} GiB", bytes / gib)
+                format!("{:.1} GiB", bytes / GIB)
             }
         }),
     })
@@ -454,6 +483,168 @@ fn duration(ms: f64) -> String {
         (hours, 0) => format!("{hours}h"),
         (hours, minutes) => format!("{hours}h {minutes}m"),
     }
+}
+
+async fn list_usage(api: &Api, args: UsageList, json: bool) -> Result<u8> {
+    let mut filters = usage_scope(&args.scope);
+    if let Some(days) = args.days {
+        filters.push(("days".into(), days));
+    }
+    if let Some(sandbox) = args.sandbox {
+        filters.push(("sandboxId".into(), sandbox.to_string()));
+    }
+    let result = api
+        .list("/v1/usage", "events", &args.page, true, &filters)
+        .await?;
+    if output::tables(json) {
+        write_usage_events(&mut io::stdout().lock(), &result)?;
+    } else {
+        output::print(&result, json)?;
+    }
+    Ok(0)
+}
+
+async fn usage_summary(api: &Api, args: UsageSummary, json: bool) -> Result<u8> {
+    let mut query = usage_scope(&args.scope);
+    query.push(("days".into(), args.days));
+    let summary = api
+        .json(Method::GET, "/v1/usage/summary", None, &query, None)
+        .await?;
+    if output::tables(json) {
+        write_usage_summary(&mut io::stdout().lock(), &summary)?;
+    } else {
+        output::print(&summary, json)?;
+    }
+    Ok(0)
+}
+
+/// Query parameters shared by usage lists and summaries.
+fn usage_scope(scope: &UsageScope) -> Vec<(String, String)> {
+    let mut query = vec![("kind".to_owned(), choice(scope.kind))];
+    if let Some(user) = scope.user {
+        query.push(("userId".into(), user.to_string()));
+    }
+    query
+}
+
+/// Writes one row per sandbox run or model call; missing measurements show as —.
+fn write_usage_events(out: &mut impl Write, result: &Value) -> io::Result<()> {
+    let events = result["events"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let Some(first) = events.first() else {
+        return writeln!(out, "No usage.");
+    };
+    let took = |event: &Value| event["usage"]["durationMs"].as_f64().map(duration);
+    if first["kind"] == "model" {
+        let rows: Vec<Value> = events
+            .iter()
+            .map(|event| {
+                json!({
+                    "created (utc)": minute(&event["createdAt"]),
+                    "model": event["details"]["model"],
+                    "credentials": event["details"]["credentialSource"],
+                    "status": event["details"]["status"],
+                    "duration": took(event),
+                    "input tokens": event["usage"]["inputTokens"],
+                    "output tokens": event["usage"]["outputTokens"],
+                })
+            })
+            .collect();
+        let keys = [
+            "created (utc)",
+            "model",
+            "credentials",
+            "status",
+            "duration",
+            "input tokens",
+            "output tokens",
+        ];
+        output::table(out, &keys, &rows)?;
+    } else {
+        let rows: Vec<Value> = events
+            .iter()
+            .map(|event| {
+                json!({
+                    "created (utc)": minute(&event["createdAt"]),
+                    "sandbox": event["sandboxId"],
+                    "status": event["status"],
+                    "duration": took(event),
+                    "cpu": cpu_hours(&event["usage"]),
+                    "memory": memory_hours(&event["usage"]),
+                })
+            })
+            .collect();
+        let keys = [
+            "created (utc)",
+            "sandbox",
+            "status",
+            "duration",
+            "cpu",
+            "memory",
+        ];
+        output::table(out, &keys, &rows)?;
+    }
+    output::next_page(out, result)
+}
+
+/// Writes one row per member plus a total row, then notes incomplete data.
+fn write_usage_summary(out: &mut impl Write, summary: &Value) -> io::Result<()> {
+    let members = summary["members"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let named = members
+        .iter()
+        .map(|member| (member["name"].clone(), member))
+        .chain([(json!("Total"), &summary["totals"])]);
+    if summary["kind"] == "model" {
+        let rows: Vec<Value> = named
+            .map(|(name, m)| {
+                json!({
+                    "member": name,
+                    "calls": m["calls"],
+                    "input tokens": m["inputTokens"],
+                    "output tokens": m["outputTokens"],
+                })
+            })
+            .collect();
+        output::table(
+            out,
+            &["member", "calls", "input tokens", "output tokens"],
+            &rows,
+        )?;
+        match summary["missingTokenCalls"].as_u64() {
+            None | Some(0) => Ok(()),
+            Some(n) => {
+                let plural = if n == 1 { "" } else { "s" };
+                writeln!(
+                    out,
+                    "\n{n} call{plural} did not report input or output token counts."
+                )
+            }
+        }
+    } else {
+        let rows: Vec<Value> = named
+            .map(|(name, m)| {
+                json!({
+                    "member": name,
+                    "runs": m["runs"],
+                    "cpu": cpu_hours(m),
+                    "memory": memory_hours(m),
+                })
+            })
+            .collect();
+        output::table(out, &["member", "runs", "cpu", "memory"], &rows)?;
+        estimated_note(out, &summary["totals"])
+    }
+}
+
+/// Shortens an ISO timestamp to the minute, e.g. 2026-11-18 14:02.
+fn minute(at: &Value) -> Option<String> {
+    let at = at.as_str()?;
+    Some(format!("{} {}", at.get(..10)?, at.get(11..16)?))
 }
 
 pub(crate) async fn create_sandbox(api: &Api, args: SandboxCreate) -> Result<Value> {
@@ -1082,6 +1273,138 @@ mod tests {
             Some(
                 "incomplete  58m of 1h     0.42 CPU-h  0.43 vCPU  0s of 1h         —       —         "
             )
+        );
+    }
+
+    fn written(write: fn(&mut Vec<u8>, &Value) -> io::Result<()>, value: Value) -> String {
+        let mut out = Vec::new();
+        write(&mut out, &value).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    /// Splits table lines into cells; column padding is covered by the output tests.
+    fn cells(rendered: &str) -> Vec<Vec<&str>> {
+        rendered
+            .lines()
+            .map(|line| {
+                line.split("  ")
+                    .map(str::trim)
+                    .filter(|cell| !cell.is_empty())
+                    .collect()
+            })
+            .collect()
+    }
+
+    const ID: &str = "11111111-1111-4111-8111-111111111111";
+
+    #[test]
+    fn usage_list_shows_one_row_per_run_and_the_next_page() {
+        let events = json!({"events":[
+            {"kind":"sandbox","createdAt":"2026-11-18T14:02:11.000Z","sandboxId":ID,"status":"finished",
+             "usage":{"durationMs":3600000,"cpuNanoseconds":"1834000000000",
+                      "residentByteMilliseconds":"3865470566400000","observedMs":3600000,"memoryObservedMs":3600000}},
+            {"kind":"sandbox","createdAt":"2026-11-19T16:18:00.000Z","sandboxId":ID,"status":"running",
+             "usage":{"durationMs":120000,"cpuNanoseconds":"0","residentByteMilliseconds":"0",
+                      "observedMs":0,"memoryObservedMs":0}}
+        ],"nextCursor":"33333333-3333-4333-8333-333333333333"});
+        let out = written(write_usage_events, events);
+        assert_eq!(
+            cells(&out),
+            [
+                vec![
+                    "CREATED (UTC)",
+                    "SANDBOX",
+                    "STATUS",
+                    "DURATION",
+                    "CPU",
+                    "MEMORY"
+                ],
+                vec![
+                    "2026-11-18 14:02",
+                    ID,
+                    "finished",
+                    "1h",
+                    "0.51 CPU-h",
+                    "1.00 GiB-h"
+                ],
+                vec!["2026-11-19 16:18", ID, "running", "2m", "—", "—"],
+                vec![],
+                vec![
+                    "Next page: rerun with --cursor 33333333-3333-4333-8333-333333333333 (or use --all)"
+                ],
+            ]
+        );
+    }
+
+    #[test]
+    fn usage_list_shows_model_tokens_and_empty_results() {
+        let events = json!({"events":[
+            {"kind":"model","createdAt":"2026-11-18T14:05:00.000Z",
+             "details":{"model":"claude-sonnet-5-5","credentialSource":"adapt","status":"succeeded"},
+             "usage":{"durationMs":4210,"inputTokens":1830,"outputTokens":null}}
+        ],"nextCursor":null});
+        let out = written(write_usage_events, events);
+        assert_eq!(
+            cells(&out),
+            [
+                vec![
+                    "CREATED (UTC)",
+                    "MODEL",
+                    "CREDENTIALS",
+                    "STATUS",
+                    "DURATION",
+                    "INPUT TOKENS",
+                    "OUTPUT TOKENS"
+                ],
+                vec![
+                    "2026-11-18 14:05",
+                    "claude-sonnet-5-5",
+                    "adapt",
+                    "succeeded",
+                    "4s",
+                    "1830",
+                    "—"
+                ],
+            ]
+        );
+        let empty = json!({"events":[],"nextCursor":null});
+        assert_eq!(written(write_usage_events, empty), "No usage.\n");
+    }
+
+    #[test]
+    fn usage_summary_adds_a_total_row_and_notes_incomplete_data() {
+        let sandbox = json!({"kind":"sandbox","members":[
+            {"name":"Ada Lovelace","runs":3,"cpuNanoseconds":"1834000000000",
+             "residentByteMilliseconds":"3865470566400000","observedMs":3600000,"memoryObservedMs":3600000},
+            {"name":"API keys","runs":1,"cpuNanoseconds":"0","residentByteMilliseconds":"0",
+             "observedMs":0,"memoryObservedMs":0}
+        ],"totals":{"runs":4,"cpuNanoseconds":"1834000000000","residentByteMilliseconds":"3865470566400000",
+                    "observedMs":3600000,"memoryObservedMs":3600000,"estimatedIntervals":2}});
+        let out = written(write_usage_summary, sandbox);
+        assert_eq!(
+            cells(&out),
+            [
+                vec!["MEMBER", "RUNS", "CPU", "MEMORY"],
+                vec!["Ada Lovelace", "3", "0.51 CPU-h", "1.00 GiB-h"],
+                vec!["API keys", "1", "—", "—"],
+                vec!["Total", "4", "0.51 CPU-h", "1.00 GiB-h"],
+                vec![],
+                vec!["Includes 2 intervals estimated from allocated resources, not measured."],
+            ]
+        );
+        let model = json!({"kind":"model","members":[
+            {"name":"Ada Lovelace","calls":120,"inputTokens":219600,"outputTokens":null}
+        ],"totals":{"calls":120,"inputTokens":219600,"outputTokens":null},"missingTokenCalls":1});
+        let out = written(write_usage_summary, model);
+        assert_eq!(
+            cells(&out),
+            [
+                vec!["MEMBER", "CALLS", "INPUT TOKENS", "OUTPUT TOKENS"],
+                vec!["Ada Lovelace", "120", "219600", "—"],
+                vec!["Total", "120", "219600", "—"],
+                vec![],
+                vec!["1 call did not report input or output token counts."],
+            ]
         );
     }
 }

@@ -122,6 +122,19 @@ describe the message-posting tool and use that channel ID. Listing channels is
 a separate action from sending a message. Inspect tool results for reported
 errors as well as the CLI exit status.
 
+## Models
+
+```sh
+adapt models list --json
+adapt models providers --json
+```
+
+`models list` returns the organization's enabled models; IDs include the
+provider prefix, such as `openai/gpt-5`. It needs `modelGateway` `use`
+permission, which an API key has only if granted. `models providers` lists configured
+providers without their keys. `models discover PROVIDER_ID` lists every model a
+provider offers and requires browser sign-in as an owner or admin.
+
 ## Platform MCP server
 
 ```sh

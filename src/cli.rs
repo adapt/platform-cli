@@ -75,6 +75,9 @@ pub enum Command {
     /// Manage upstream MCP connections and call tools
     #[command(subcommand)]
     Connections(ConnectionCommand),
+    /// Inspect model providers and the enabled model catalog
+    #[command(subcommand, visible_alias = "model")]
+    Models(ModelCommand),
     /// Manage organization API keys
     #[command(subcommand)]
     Keys(KeyCommand),
@@ -723,6 +726,21 @@ pub enum SessionCommand {
         id: Uuid,
     },
     RevokeOthers,
+}
+
+#[derive(Subcommand)]
+pub enum ModelCommand {
+    /// List the organization's enabled models, as provider/model IDs
+    #[command(visible_alias = "ls")]
+    List,
+    /// List configured model providers (API keys are never returned)
+    Providers,
+    /// List every model a provider offers, including disabled models
+    #[command(after_help = "Requires browser sign-in as an organization owner or admin.")]
+    Discover {
+        /// Full provider UUID or an unambiguous ID prefix
+        id: ResourceRef,
+    },
 }
 
 #[derive(Subcommand)]

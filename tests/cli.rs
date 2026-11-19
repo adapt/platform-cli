@@ -13,6 +13,7 @@ mod sandbox_list;
 mod sandbox_prefixes;
 mod sandbox_sh;
 mod sandbox_usage;
+mod usage;
 
 #[test]
 fn help_and_argument_validation() {

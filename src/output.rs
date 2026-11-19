@@ -55,18 +55,24 @@ pub fn print(value: &Value, json: bool) -> Result<()> {
         .collect();
         if !keys.is_empty() {
             table(&mut out, &keys, rows)?;
-            if let Some(cursor) = value["nextCursor"].as_str() {
-                writeln!(
-                    out,
-                    "\nNext page: rerun with --cursor {cursor} (or use --all)"
-                )?;
-            }
+            next_page(&mut out, value)?;
             return Ok(());
         }
     }
     serde_json::to_writer_pretty(&mut out, value)?;
     writeln!(out)?;
     Ok(())
+}
+
+/// Tells table readers how to get the next page of a cursor-paginated list.
+pub fn next_page(out: &mut impl Write, value: &Value) -> io::Result<()> {
+    match value["nextCursor"].as_str() {
+        Some(cursor) => writeln!(
+            out,
+            "\nNext page: rerun with --cursor {cursor} (or use --all)"
+        ),
+        None => Ok(()),
+    }
 }
 
 /// Writes `keys` of each row as left-aligned columns under uppercase headings.

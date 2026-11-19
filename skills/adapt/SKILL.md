@@ -2,7 +2,8 @@
 name: adapt
 description: >-
   Use the adapt CLI to manage Adapt Platform sandboxes, run remote commands,
-  transfer files, and discover or execute tools from connected MCP servers.
+  transfer files, check metered usage, and discover or execute tools from
+  connected MCP servers.
   Use when the user asks to work with Platform resources or their connected tools.
 ---
 
@@ -52,6 +53,8 @@ adapt sandbox sh --image ubuntu:24.04 -- uname -a
 adapt sandbox sh --image-id IMAGE_ID --cpu 2 --memory 2048 -- /bin/sh -lc 'echo hello; uname -a'
 adapt sandbox create --image-id IMAGE_ID --wait
 adapt sandbox usage SANDBOX_ID --hours 24 --json
+adapt usage summary --kind model --days 7 --json
+adapt usage list --kind sandbox --days 30 --all --json
 adapt exec SANDBOX_ID --cwd /app -- /bin/sh -lc 'npm test'
 ```
 

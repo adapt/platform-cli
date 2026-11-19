@@ -431,21 +431,31 @@ fn exact(totals: &Value, key: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// CPU-hours, or None (shown as —) without observed time, because zero coverage
+/// CPU time, or None (shown as —) without observed time, because zero coverage
 /// is not evidence of idling.
-fn cpu_hours(totals: &Value) -> Option<String> {
+fn cpu_time(totals: &Value) -> Option<String> {
     (totals["observedMs"].as_f64().unwrap_or(0.0) > 0.0)
-        .then(|| format!("{:.2} CPU-h", exact(totals, "cpuNanoseconds") / 3.6e12))
+        .then(|| resource_time(exact(totals, "cpuNanoseconds") / 1e9, "CPU"))
 }
 
-/// Resident GiB-hours, or None (shown as —) without observed memory time.
-fn memory_hours(totals: &Value) -> Option<String> {
+/// Resident memory time, or None (shown as —) without observed memory time.
+fn memory_time(totals: &Value) -> Option<String> {
     (totals["memoryObservedMs"].as_f64().unwrap_or(0.0) > 0.0).then(|| {
-        format!(
-            "{:.2} GiB-h",
-            exact(totals, "residentByteMilliseconds") / (GIB * 3.6e6)
+        resource_time(
+            exact(totals, "residentByteMilliseconds") / (GIB * 1e3),
+            "GiB",
         )
     })
+}
+
+/// Formats resource-seconds in hours, or in seconds below 0.01 hours so short
+/// runs don't round to zero, e.g. 1.25 CPU-h or 19.5 CPU-s.
+fn resource_time(seconds: f64, unit: &str) -> String {
+    if seconds >= 36.0 {
+        format!("{:.2} {unit}-h", seconds / 3600.0)
+    } else {
+        format!("{seconds:.1} {unit}-s")
+    }
 }
 
 /// Converts exact usage totals to readable units.
@@ -460,10 +470,10 @@ fn usage_row(usage: &Value, hours: &str) -> Value {
     json!({
         "status": usage["status"],
         "cpu observed": format!("{} of {hours}h", duration(observed)),
-        "cpu": cpu_hours(totals),
+        "cpu": cpu_time(totals),
         "avg cpu": (observed > 0.0).then(|| format!("{:.2} vCPU", cpu / (observed * 1e6))),
         "memory observed": format!("{} of {hours}h", duration(ram_observed)),
-        "memory": memory_hours(totals),
+        "memory": memory_time(totals),
         "avg memory": (ram_observed > 0.0).then(|| {
             let bytes = ram / ram_observed;
             if bytes < GIB {
@@ -571,8 +581,8 @@ fn write_usage_events(out: &mut impl Write, result: &Value) -> io::Result<()> {
                     "sandbox": event["sandboxId"],
                     "status": event["status"],
                     "duration": took(event),
-                    "cpu": cpu_hours(&event["usage"]),
-                    "memory": memory_hours(&event["usage"]),
+                    "cpu": cpu_time(&event["usage"]),
+                    "memory": memory_time(&event["usage"]),
                 })
             })
             .collect();
@@ -631,8 +641,8 @@ fn write_usage_summary(out: &mut impl Write, summary: &Value) -> io::Result<()> 
                 json!({
                     "member": name,
                     "runs": m["runs"],
-                    "cpu": cpu_hours(m),
-                    "memory": memory_hours(m),
+                    "cpu": cpu_time(m),
+                    "memory": memory_time(m),
                 })
             })
             .collect();
@@ -1296,6 +1306,18 @@ mod tests {
     }
 
     const ID: &str = "11111111-1111-4111-8111-111111111111";
+
+    #[test]
+    fn short_totals_show_seconds_instead_of_rounding_to_zero() {
+        assert_eq!(resource_time(0.54, "CPU"), "0.5 CPU-s");
+        assert_eq!(resource_time(35.9, "GiB"), "35.9 GiB-s");
+        assert_eq!(resource_time(36.0, "CPU"), "0.01 CPU-h");
+        // A measured run of a 1 GiB sandbox for 2.2 CPU-seconds and 20 seconds.
+        let usage = json!({"observedMs":20000,"memoryObservedMs":20000,
+            "cpuNanoseconds":"2210000000","residentByteMilliseconds":"21474836480000"});
+        assert_eq!(cpu_time(&usage).as_deref(), Some("2.2 CPU-s"));
+        assert_eq!(memory_time(&usage).as_deref(), Some("20.0 GiB-s"));
+    }
 
     #[test]
     fn usage_list_shows_one_row_per_run_and_the_next_page() {

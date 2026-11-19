@@ -243,6 +243,7 @@ Shows measured CPU and resident memory for the last hour (default) or 24 hours.
 Each can be shorter than the requested window, and memory coverage can differ from CPU coverage.
 For example, one hour of CPU data and six minutes of memory data show `1h of 1h` and `6m of 1h`, respectively.
 A dash means nothing was measured, not zero usage.
+Totals under 0.01 hours show in seconds, for example `19.5 CPU-s`, so short runs don't round to zero.
 A note under the table counts intervals that Platform estimated from allocated resources instead of measuring.
 Use `--json` for the exact Platform totals and chart points.
 
@@ -416,6 +417,7 @@ Sandbox runs count if they finished in that time or are still running.
 `usage summary` totals usage per member over the last 30 UTC days, or over `--days`.
 The table adds a total row.
 A dash means nothing was measured, not zero usage.
+As with `sandbox usage`, totals under 0.01 hours show in seconds.
 Notes under the table count intervals that Platform estimated from allocated resources, and model calls that reported no token counts.
 Model token totals include calls made with your organization's own provider keys.
 To separate them, use `usage list --kind model --json` and check each call's `details.credentialSource`.

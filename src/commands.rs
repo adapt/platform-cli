@@ -193,6 +193,11 @@ pub async fn run(cli: Cli) -> Result<u8> {
             RegistryCommand::Delete { id } => delete(&api, &format!("/v1/registry-credentials/{id}")).await?,
         },
         Command::Connections(command) => connections(&api, command).await?,
+        Command::Models(command) => match command {
+            ModelCommand::List => api.get("/v1/models").await?,
+            ModelCommand::Providers => api.get("/v1/model-gateway/providers").await?,
+            ModelCommand::Discover { id } => api.get(&format!("/v1/model-gateway/providers/{id}/models")).await?,
+        },
         Command::Keys(command) => keys(&api, command).await?,
         Command::Sessions(command) => match command {
             SessionCommand::List => api.get("/v1/auth/sessions").await?,

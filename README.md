@@ -41,6 +41,28 @@ adapt whoami
 
 If the machine has no browser, use `adapt auth login --no-browser`.
 
+## Profiles
+
+A profile stores an API URL, credentials, and a selected organization.
+The default profile is `default`.
+
+Sign in to another profile with `--profile`:
+
+```sh
+adapt --profile staging auth login --api-url https://platform.adaptstaging.com
+```
+
+To use a profile for every command in your shell, set `ADAPT_PROFILE`:
+
+```sh
+export ADAPT_PROFILE=staging
+adapt whoami
+```
+
+The `--profile` option overrides `ADAPT_PROFILE`.
+List saved profiles with `adapt profiles`.
+For more information, see the [CLI reference](docs/cli-reference.md#profiles-and-api-urls).
+
 ## Use a temporary sandbox
 
 Open a shell:

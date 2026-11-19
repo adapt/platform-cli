@@ -6,6 +6,7 @@ use support::*;
 mod endpoint_request;
 mod image_list;
 mod mcp_tools;
+mod models;
 mod resource_prefixes;
 mod retries;
 mod sandbox_list;

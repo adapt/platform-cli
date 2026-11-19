@@ -10,6 +10,7 @@ Replace example names such as `SANDBOX_ID` and `EXEC_ID` with your resource IDs.
 - [Files](#files)
 - [Hosted applications](#hosted-applications)
 - [Images and environment variables](#images-and-environment-variables)
+- [Models](#models)
 - [Resource IDs](#resource-ids)
 - [JSON requests](#json-requests)
 - [Lists and filters](#lists-and-filters)
@@ -42,6 +43,7 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | `env` | `list`, `get`, `create`, `update`, `delete` |
 | `registry` | `list`, `create`, `update`, `delete` |
 | `connections` | `list`, `get`, `create`, `update`, `delete`, `refresh`, `grant`, `oauth`, `oauth-complete`, `calls`, `principals`, `search`, `describe`, `call` |
+| `models` | `list`, `providers`, `discover` |
 | `keys` | `list`, `create`, `delete` |
 | `sessions` | `list`, `revoke`, `revoke-others` |
 | `mcp` | `list`, `revoke`, `tools` |
@@ -426,6 +428,35 @@ To separate them, use `usage list --kind model --json` and check each call's `de
 
 Use `--json` for exact totals, daily rows, and per-model breakdowns.
 
+## Models
+
+List the models enabled in your organization:
+
+```sh
+adapt models list
+```
+
+Model IDs include the provider prefix, such as `openai/gpt-5`.
+This command requires the `modelGateway` `use` permission.
+Owners and admins have it; an API key has it only if its permissions grant it.
+
+List the configured model providers:
+
+```sh
+adapt models providers
+```
+
+The output never includes provider API keys.
+To configure providers, use the Platform dashboard.
+
+To list every model that a provider offers, including disabled models, run:
+
+```sh
+adapt models discover PROVIDER_ID
+```
+
+`discover` requires a browser login as an organization owner or admin.
+
 ## Resource IDs
 
 These resources accept full UUIDs or unique ID prefixes:
@@ -434,6 +465,7 @@ These resources accept full UUIDs or unique ID prefixes:
 - Images and registry credentials.
 - Volumes and endpoints.
 - Environment variable sets and tool connections.
+- Model providers.
 
 This also applies to references such as `--image-id`, `--credential`, and both IDs in an endpoint binding.
 

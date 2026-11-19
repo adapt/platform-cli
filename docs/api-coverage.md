@@ -4,9 +4,11 @@ Based on the resource OpenAPI document from `../platform` at `f20ded3`, plus its
 auth integrations. The `query` filter on `GET /v1/sandboxes` and the `name` and `status`
 filters on `GET /v1/images` come from platform `2396647`. `GET /v1/sandboxes/{id}/usage`
 comes from platform `d3b6c77`. `GET /v1/usage` and `GET /v1/usage/summary` come from
-platform `8af1e3e`, and their model usage from `1ae5640`.
-Every resource operation has a named command. `adapt api METHOD PATH`
-also exposes same-origin JSON requests for less common account operations.
+platform `8af1e3e`, and their model usage from `1ae5640`. The model catalog and provider
+routes come from platform `8747699`.
+Every resource operation has a named command, except model provider writes (`POST`, `PUT`,
+and `DELETE` on `/v1/model-gateway/providers`); configure providers in the Platform dashboard.
+`adapt api METHOD PATH` also exposes same-origin JSON requests for less common account operations.
 
 `{id}` denotes the corresponding resource ID. Writes requiring an idempotency key receive
 one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
@@ -63,6 +65,9 @@ one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
 | `GET /v1/environment-variable-sets/{id}` | `env get ID` |
 | `PUT /v1/environment-variable-sets/{id}` | `env update ID --data JSON` |
 | `DELETE /v1/environment-variable-sets/{id}` | `env delete ID` |
+| `GET /v1/models` | `models list` |
+| `GET /v1/model-gateway/providers` | `models providers` |
+| `GET /v1/model-gateway/providers/{id}/models` | `models discover ID` |
 | `POST /v1/gateway/connections` | `connections create --data JSON` |
 | `GET /v1/gateway/connections` | `connections list` |
 | `GET /v1/gateway/connections/{id}` | `connections get ID` |

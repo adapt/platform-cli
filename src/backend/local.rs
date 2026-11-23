@@ -105,6 +105,7 @@ impl LocalBackend {
         validate(&args)?;
         let sandbox = Sandbox {
             id: Uuid::new_v4(),
+            #[cfg(unix)]
             env: args.env.into_iter().collect(),
         };
         eprintln!("Creating local sandbox: {}", sandbox.id);

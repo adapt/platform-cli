@@ -51,7 +51,7 @@ mod unix {
     struct Ready {
         version: u32,
         address: SocketAddr,
-        instance_id: String,
+        instance_id: Uuid,
         runtime_version: String,
     }
 
@@ -118,12 +118,7 @@ mod unix {
         };
         let ready: Ready =
             serde_json::from_slice(&bytes).context("Invalid local runtime discovery file")?;
-        if ready.version != 1
-            || !ready.address.ip().is_loopback()
-            || ready.address.port() == 0
-            || ready.instance_id.len() != 32
-            || !ready.instance_id.bytes().all(|b| b.is_ascii_hexdigit())
-        {
+        if ready.version != 1 || !ready.address.ip().is_loopback() || ready.address.port() == 0 {
             bail!("Unsupported or invalid local runtime discovery metadata");
         }
         let origin = format!("http://{}/", ready.address).parse()?;
@@ -141,7 +136,9 @@ mod unix {
                 return Err(error).context("Cannot authenticate the discovered local runtime");
             }
         };
-        if spec["instance_id"].as_str() != Some(&ready.instance_id) {
+        let instance_id: Uuid = serde_json::from_value(spec["instance_id"].clone())
+            .context("Local runtime returned an invalid instance ID")?;
+        if instance_id != ready.instance_id {
             return Ok(None);
         }
         if spec["version"] != 1

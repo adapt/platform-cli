@@ -13,7 +13,7 @@ args = parser.parse_args()
 assert "ADAPT_TOKEN" not in os.environ
 state = Path(args.state_dir)
 token = Path(args.token_file).read_text()
-instance = "22222222222222222222222222222222"
+instance = "22222222-2222-4222-8222-222222222222"
 with (state / "starts").open("a") as stream:
     stream.write("started\n")
 

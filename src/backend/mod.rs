@@ -1,70 +1,77 @@
-//! Shared temporary-sandbox lifecycle. Backend-specific wire formats stay here.
+//! Resource operations shared by CLI workflows. Implementations own transport,
+//! credentials and wire formats; unsupported capabilities fail without side effects.
+pub mod cloud;
 pub mod local;
 
-use crate::{
-    api::Api,
-    cli::{ExecArgs, SandboxCreate},
-    commands, shell,
-};
-use anyhow::Result;
-#[cfg(unix)]
-use std::collections::BTreeMap;
+use crate::{cli::*, input::ResourceRef};
+use anyhow::{Result, bail};
+use serde_json::Value;
 use uuid::Uuid;
 
-pub struct Sandbox {
-    pub id: Uuid,
-    #[cfg(unix)]
-    pub env: BTreeMap<String, String>,
-}
+pub trait Backend {
+    fn name(&self) -> &'static str;
 
-pub enum SandboxBackend<'a> {
-    Cloud(&'a Api),
-    Local(&'a local::LocalBackend),
-}
-
-impl SandboxBackend<'_> {
-    pub async fn create(&self, args: SandboxCreate) -> Result<Sandbox> {
-        match self {
-            Self::Cloud(api) => Ok(Sandbox {
-                id: commands::resource_id(&commands::create_sandbox(api, args).await?)?,
-                #[cfg(unix)]
-                env: BTreeMap::new(),
-            }),
-            Self::Local(local) => local.create(args).await,
-        }
+    fn unsupported<T>(&self, operation: &str) -> Result<T> {
+        bail!(
+            "{operation} is not supported by the {} backend",
+            self.name()
+        )
     }
 
-    pub async fn wait(&self, id: Uuid) -> Result<()> {
-        match self {
-            Self::Cloud(api) => {
-                commands::wait_for(api, "sandboxes", id, "running", 600).await?;
-                Ok(())
-            }
-            Self::Local(local) => local.wait(id).await,
-        }
+    async fn sandbox_list(&self, _args: SandboxList) -> Result<Value> {
+        self.unsupported("sandbox list")
+    }
+    async fn sandbox_get(&self, _id: ResourceRef) -> Result<Value> {
+        self.unsupported("sandbox get")
+    }
+    async fn sandbox_create(&self, _args: SandboxCreate) -> Result<Value> {
+        self.unsupported("sandbox create")
+    }
+    async fn sandbox_start(&self, _id: ResourceRef) -> Result<Value> {
+        self.unsupported("sandbox start")
+    }
+    async fn sandbox_stop(&self, _id: ResourceRef) -> Result<Value> {
+        self.unsupported("sandbox stop")
+    }
+    async fn sandbox_delete(&self, _id: ResourceRef) -> Result<Value> {
+        self.unsupported("sandbox delete")
+    }
+    async fn sandbox_wait(&self, _id: ResourceRef, _status: &str, _seconds: u64) -> Result<Value> {
+        self.unsupported("sandbox wait")
+    }
+    async fn sandbox_usage(&self, _id: ResourceRef, _hours: &str) -> Result<Value> {
+        self.unsupported("sandbox usage")
+    }
+    async fn execute(&self, _args: ExecArgs, _json: bool) -> Result<u8> {
+        self.unsupported("exec")
+    }
+    async fn executions(&self, _command: ExecCommand, _json: bool) -> Result<u8> {
+        self.unsupported("execs")
+    }
+    async fn files(&self, _command: FileCommand) -> Result<Value> {
+        self.unsupported("files")
     }
 
-    pub async fn execute(&self, sandbox: &Sandbox, args: ExecArgs, json: bool) -> Result<u8> {
-        match self {
-            Self::Cloud(api) => commands::execute(api, args, json).await,
-            Self::Local(local) => local.execute(sandbox, args, json).await,
-        }
+    // Resource families can gain a local implementation independently. Commands
+    // never fall back to another backend when a capability is unavailable.
+    async fn volumes(&self, _command: VolumeCommand) -> Result<Value> {
+        self.unsupported("volumes")
+    }
+    async fn images(&self, _command: ImageCommand, _json: bool) -> Result<u8> {
+        self.unsupported("images")
+    }
+    async fn endpoints(&self, _command: EndpointCommand, _json: bool) -> Result<u8> {
+        self.unsupported("endpoints")
     }
 
-    pub async fn delete(&self, id: Uuid) -> Result<()> {
-        match self {
-            Self::Cloud(api) => shell::cleanup_cloud(api, id).await,
-            Self::Local(local) => local.delete(id).await,
-        }
+    /// Temporary workflows must confirm deletion, even if ordinary deletion is
+    /// asynchronous. Backends may also tolerate an already-deleted resource here.
+    async fn cleanup(&self, id: Uuid) -> Result<()> {
+        self.sandbox_delete(id.into()).await?;
+        Ok(())
     }
 
-    pub fn cleanup_hint(&self, id: Uuid) -> String {
-        match self {
-            Self::Cloud(_) => format!("retry with `adapt sandbox delete {id}`"),
-            Self::Local(local) => format!(
-                "local sandbox {id} remains in {}; remove it through the local Goblin API",
-                local.state_dir.display()
-            ),
-        }
+    fn cleanup_hint(&self, id: Uuid) -> String {
+        format!("retry with `adapt --{} sandbox delete {id}`", self.name())
     }
 }

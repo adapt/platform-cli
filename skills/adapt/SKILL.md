@@ -70,14 +70,25 @@ Use `exec --detach` to return execution metadata immediately, or `exec -it`
 for an interactive terminal. Normal command execution streams output and returns
 the remote exit code.
 
-For a temporary local VM, use `adapt sandbox sh --local` on Apple Silicon macOS
-or x86_64 Linux with KVM. Set `ADAPT_LOCAL_RUNTIME` to a compatible Goblin bundle's
-`bin` directory, or pass `--runtime-dir`. This works without Platform login and
-supports image, CPU, memory, disk, and environment flags. Local TTL, cloud image
-IDs, variable sets, labels, `--data`, image startup, and idempotency keys are not
-supported. Only `sandbox sh` currently accepts the local target; other resource
-commands retain their cloud behavior. Local shells are deleted on exit and do not
-mount host directories. `--cloud` explicitly selects the existing cloud shell.
+Use the global `--local` flag for local sandboxes on Apple Silicon macOS or
+x86_64 Linux with KVM. Set `ADAPT_LOCAL_RUNTIME` to a compatible Goblin bundle's
+`bin` directory, or pass `--runtime-dir`. Local commands work without Platform
+login. Cloud remains the default; `--cloud` selects it explicitly. Never retry an
+unsupported local operation against the cloud unless the user chooses that target.
+
+Local `sandbox create`, `list`, `get`, `stop`, `delete`, `wait`, `sh`, and attached
+`exec` are supported. Use full sandbox UUIDs. `sandbox create --wait` leaves the
+VM running for later commands; `sandbox sh` deletes it on exit. Creation accepts
+image, CPU, memory, disk, and environment flags. Local `--env` values persist for
+later `exec` commands, whose environment flags override them. Use the same
+`--local-state-dir` / `ADAPT_LOCAL_STATE_DIR` across commands when overriding it.
+
+Local start/restart, usage, `exec --detach`, `execs`, files, other resource
+families, mounts, moves, TTL, cloud image IDs, variable sets, labels, `--data`,
+image startup, and idempotency keys return unsupported errors. Local lists are
+unpaginated; `--query` matches UUID prefixes, while `--limit` and `--cursor` are
+unsupported. Local VMs do not expire automatically; use `adapt --local sandbox
+list` and `adapt --local sandbox delete ID` to clean up a VM left after a killed CLI.
 
 ```sh
 adapt execs get EXEC_ID

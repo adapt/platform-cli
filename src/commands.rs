@@ -1,6 +1,7 @@
 use crate::{
     api::{self, Api},
     auth,
+    backend::{Backend, cloud::CloudBackend, local::LocalBackend},
     cli::*,
     config::{self, Config, Credential, CredentialKind},
     input, mcp, output, shell, skill, stream,
@@ -27,28 +28,17 @@ pub async fn run(cli: Cli) -> Result<u8> {
         skill::run(command, cli.json)?;
         return Ok(0);
     }
-    if matches!(&cli.command, Command::Sandbox(SandboxCommand::Sh(args)) if args.local_target) {
-        let Command::Sandbox(SandboxCommand::Sh(args)) = cli.command else {
-            unreachable!()
-        };
-        crate::backend::local::validate(&args.create)?;
-        shell::validate(&args, cli.json)?;
-        let dir = match &args.local_state_dir {
-            Some(dir) => dir.clone(),
-            None => config::directory(cli.config_dir.as_deref())?.join("local"),
-        };
-        let local = crate::local_runtime::connect(
-            &dir,
-            args.runtime_dir.as_deref(),
+    // --local on logout retains its established credential-only meaning.
+    if cli.local_target && !matches!(&cli.command, Command::Auth(AuthCommand::Logout)) {
+        let state = cli.local_state_dir.clone().map(Ok).unwrap_or_else(|| {
+            config::directory(cli.config_dir.as_deref()).map(|dir| dir.join("local"))
+        })?;
+        let backend = LocalBackend::new(
+            state,
+            cli.runtime_dir.clone(),
             Duration::from_secs(cli.timeout),
-        )
-        .await?;
-        return shell::run(
-            &crate::backend::SandboxBackend::Local(&local),
-            args,
-            cli.json,
-        )
-        .await;
+        );
+        return resources(&backend, cli.command, cli.json).await;
     }
     let dir = config::directory(cli.config_dir.as_deref())?;
     let mut config = Config::load(&dir)?;
@@ -97,7 +87,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
     });
     let token = if matches!(
         &cli.command,
-        Command::Auth(AuthCommand::Login { .. } | AuthCommand::Logout { .. })
+        Command::Auth(AuthCommand::Login { .. } | AuthCommand::Logout)
     ) {
         None
     } else {
@@ -145,7 +135,8 @@ pub async fn run(cli: Cli) -> Result<u8> {
             eprintln!("Signed in. Profile: {}", output::safe(&cli.profile));
             json!({"authenticated":true,"profile":cli.profile,"apiUrl":authenticated.origin.as_str(),"organizationId":selected,"user":identity["user"]})
         },
-        Command::Auth(AuthCommand::Logout { local }) => {
+        Command::Auth(AuthCommand::Logout) => {
+            let local = cli.local_target;
             if !same_origin { bail!("This API URL does not match the saved profile; choose that profile's API URL to log out"); }
             // ADAPT_TOKEN must never change which saved credential logout revokes.
             if let Some(credential) = saved.credential.as_ref() {
@@ -185,23 +176,9 @@ pub async fn run(cli: Cli) -> Result<u8> {
             OrgCommand::Members(command) => members(&api, command).await?,
             OrgCommand::Invitations(command) => invitations(&api, command).await?,
         },
-        Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(&crate::backend::SandboxBackend::Cloud(&api), args, cli.json).await,
-        Command::Sandbox(SandboxCommand::List(args)) => return list_sandboxes(&api, args, cli.json).await,
-        Command::Sandbox(SandboxCommand::Usage { id, hours }) => return sandbox_usage(&api, id, hours, cli.json).await,
-        Command::Sandbox(command) => sandbox(&api, command).await?,
-        Command::Exec(args) => return execute(&api, args, cli.json).await,
-        Command::Execs(command) => match command {
-            ExecCommand::Get { id } => api.get(&format!("/v1/execs/{id}")).await?,
-            ExecCommand::Cancel { id } => api.post(&format!("/v1/execs/{id}/cancel"), &json!({})).await?,
-            ExecCommand::Logs { id, cursor } => return stream::logs(&api, id, cursor, cli.json).await,
-            ExecCommand::Attach { id, after, stdin, tty } => return stream::attach(&api, id, after, stdin || tty, tty, cli.json).await,
-        },
-        Command::Files(command) => files(&api, command).await?,
-        Command::Volumes(command) => volumes(&api, command).await?,
-        Command::Endpoints(EndpointCommand::Request(args)) => return request_endpoint(&api, args).await,
-        Command::Endpoints(command) => endpoints(&api, command).await?,
-        Command::Images(ImageCommand::List(args)) => return list_images(&api, args, cli.json).await,
-        Command::Images(command) => images(&api, command).await?,
+        command @ (Command::Sandbox(_) | Command::Exec(_) | Command::Execs(_) | Command::Files(_)
+            | Command::Volumes(_) | Command::Endpoints(_) | Command::Images(_)) =>
+            return resources(&CloudBackend(&api), command, cli.json).await,
         Command::Env(command) => match command {
             EnvCommand::List(page) => api.list("/v1/environment-variable-sets", "sets", &page, true, &[]).await?,
             EnvCommand::Get { id } => api.get(&format!("/v1/environment-variable-sets/{id}")).await?,
@@ -275,28 +252,42 @@ async fn create(api: &Api, path: &str, body: Value, creation: Creation) -> Resul
         })
 }
 
-async fn list_sandboxes(api: &Api, args: SandboxList, json: bool) -> Result<u8> {
-    let filters: Vec<_> = args
-        .query
-        .iter()
-        .map(|text| ("query".to_owned(), text.clone()))
-        .collect();
-    let no_match = args
-        .query
-        .map(|text| format!("No sandboxes match \"{}\".", output::safe(&text)));
-    filtered_list(
-        api,
-        "/v1/sandboxes",
-        "sandboxes",
-        &args.page,
-        &filters,
-        no_match,
-        json,
-    )
-    .await
+async fn resources(backend: &impl Backend, command: Command, json: bool) -> Result<u8> {
+    let result = match command {
+        Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(backend, args, json).await,
+        Command::Sandbox(SandboxCommand::List(args)) => {
+            let no_match = args
+                .query
+                .as_ref()
+                .map(|text| format!("No sandboxes match \"{}\".", output::safe(text)));
+            let result = backend.sandbox_list(args).await?;
+            return print_filtered_list(result, "sandboxes", no_match, json);
+        }
+        Command::Sandbox(SandboxCommand::Usage { id, hours }) => {
+            let usage = backend.sandbox_usage(id, &hours).await?;
+            if output::tables(json) {
+                write_usage(&mut io::stdout().lock(), &usage, &hours)?;
+            } else {
+                output::print(&usage, json)?;
+            }
+            return Ok(0);
+        }
+        Command::Sandbox(command) => sandbox(backend, command).await?,
+        Command::Exec(args) => return backend.execute(args, json).await,
+        Command::Execs(command) => return backend.executions(command, json).await,
+        Command::Files(command) => backend.files(command).await?,
+        Command::Volumes(command) => backend.volumes(command).await?,
+        Command::Images(command) => return backend.images(command, json).await,
+        Command::Endpoints(command) => return backend.endpoints(command, json).await,
+        _ => return backend.unsupported("This command"),
+    };
+    if !result.is_null() {
+        output::print(&result, json)?;
+    }
+    Ok(0)
 }
 
-async fn list_images(api: &Api, args: ImageList, json: bool) -> Result<u8> {
+pub(crate) async fn list_images(api: &Api, args: ImageList, json: bool) -> Result<u8> {
     let status = args.status.map(choice);
     let mut filters = Vec::new();
     if let Some(name) = &args.name {
@@ -339,6 +330,15 @@ async fn filtered_list(
     json: bool,
 ) -> Result<u8> {
     let result = api.list(path, field, page, true, filters).await?;
+    print_filtered_list(result, field, no_match, json)
+}
+
+fn print_filtered_list(
+    result: Value,
+    field: &str,
+    no_match: Option<String>,
+    json: bool,
+) -> Result<u8> {
     if let Some(message) = no_match
         && result[field].as_array().is_some_and(Vec::is_empty)
     {
@@ -353,27 +353,26 @@ async fn filtered_list(
     Ok(0)
 }
 
-async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
+async fn sandbox(backend: &impl Backend, command: SandboxCommand) -> Result<Value> {
     match command {
-        SandboxCommand::List(_) => unreachable!("Sandbox lists are dispatched separately"),
-        SandboxCommand::Get { id } => api.get(&format!("/v1/sandboxes/{id}")).await,
-        SandboxCommand::Delete { id } => delete(api, &format!("/v1/sandboxes/{id}")).await,
+        SandboxCommand::Get { id } => backend.sandbox_get(id).await,
+        SandboxCommand::Delete { id } => backend.sandbox_delete(id).await,
         SandboxCommand::Start { id, wait } => {
-            let result = api
-                .post(&format!("/v1/sandboxes/{id}/start"), &json!({}))
-                .await?;
+            let result = backend.sandbox_start(id).await?;
             if wait {
-                wait_for(api, "sandboxes", resource_id(&result)?, "running", 600).await
+                backend
+                    .sandbox_wait(resource_id(&result)?.into(), "running", 600)
+                    .await
             } else {
                 Ok(result)
             }
         }
         SandboxCommand::Stop { id, wait } => {
-            let result = api
-                .post(&format!("/v1/sandboxes/{id}/stop"), &json!({}))
-                .await?;
+            let result = backend.sandbox_stop(id).await?;
             if wait {
-                wait_for(api, "sandboxes", resource_id(&result)?, "stopped", 600).await
+                backend
+                    .sandbox_wait(resource_id(&result)?.into(), "stopped", 600)
+                    .await
             } else {
                 Ok(result)
             }
@@ -382,38 +381,22 @@ async fn sandbox(api: &Api, command: SandboxCommand) -> Result<Value> {
             id,
             status,
             wait_timeout,
-        } => wait_for(api, "sandboxes", id, &status, wait_timeout).await,
+        } => backend.sandbox_wait(id, &status, wait_timeout).await,
         SandboxCommand::Create(args) => {
             let wait = args.wait;
-            let result = create_sandbox(api, args).await?;
+            let result = backend.sandbox_create(args).await?;
             if wait {
-                wait_for(api, "sandboxes", resource_id(&result)?, "running", 600).await
+                backend
+                    .sandbox_wait(resource_id(&result)?.into(), "running", 600)
+                    .await
             } else {
                 Ok(result)
             }
         }
-        SandboxCommand::Sh(_) => unreachable!("Interactive shell is dispatched separately"),
-        SandboxCommand::Usage { .. } => unreachable!("Sandbox usage is dispatched separately"),
+        SandboxCommand::List(_) | SandboxCommand::Sh(_) | SandboxCommand::Usage { .. } => {
+            unreachable!("Dispatched separately")
+        }
     }
-}
-
-async fn sandbox_usage(api: &Api, id: input::ResourceRef, hours: String, json: bool) -> Result<u8> {
-    let path = format!("/v1/sandboxes/{id}/usage");
-    let usage = api
-        .json(
-            Method::GET,
-            &path,
-            None,
-            &[("hours".into(), hours.clone())],
-            None,
-        )
-        .await?;
-    if output::tables(json) {
-        write_usage(&mut io::stdout().lock(), &usage, &hours)?;
-    } else {
-        output::print(&usage, json)?;
-    }
-    Ok(0)
 }
 
 const USAGE_COLUMNS: [&str; 7] = [
@@ -613,7 +596,7 @@ pub(crate) async fn execute(api: &Api, args: ExecArgs, json_output: bool) -> Res
     }
 }
 
-async fn files(api: &Api, command: FileCommand) -> Result<Value> {
+pub(crate) async fn files(api: &Api, command: FileCommand) -> Result<Value> {
     match command {
         FileCommand::Put {
             sandbox,
@@ -685,7 +668,7 @@ async fn files(api: &Api, command: FileCommand) -> Result<Value> {
     }
 }
 
-async fn volumes(api: &Api, command: VolumeCommand) -> Result<Value> {
+pub(crate) async fn volumes(api: &Api, command: VolumeCommand) -> Result<Value> {
     match command {
         VolumeCommand::List(page) => api.list("/v1/volumes", "volumes", &page, true, &[]).await,
         VolumeCommand::Get { id } => api.get(&format!("/v1/volumes/{id}")).await,
@@ -717,7 +700,7 @@ async fn volumes(api: &Api, command: VolumeCommand) -> Result<Value> {
     }
 }
 
-async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
+pub(crate) async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
     match command {
         EndpointCommand::List(page) => {
             api.list("/v1/ingresses", "ingresses", &page, true, &[])
@@ -769,7 +752,7 @@ async fn endpoints(api: &Api, command: EndpointCommand) -> Result<Value> {
 /// Sends one request to an endpoint's hosted application and streams the body to
 /// stdout. Platform credentials only look up the endpoint and create a token; the
 /// application receives the caller's headers and, at most, the endpoint token.
-async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
+pub(crate) async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
     let path = &args.path;
     if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') || path.contains('#')
     {
@@ -862,7 +845,7 @@ async fn request_endpoint(api: &Api, args: EndpointRequest) -> Result<u8> {
     bail!(message)
 }
 
-async fn images(api: &Api, command: ImageCommand) -> Result<Value> {
+pub(crate) async fn images(api: &Api, command: ImageCommand) -> Result<Value> {
     match command {
         ImageCommand::List(_) => unreachable!("Image lists are dispatched separately"),
         ImageCommand::Get { id } => api.get(&format!("/v1/images/{id}")).await,

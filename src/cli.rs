@@ -54,6 +54,9 @@ pub enum Command {
     /// Install or remove the bundled guide for coding agents (works offline)
     #[command(subcommand)]
     Skill(SkillCommand),
+    /// Install or inspect the local sandbox runtime
+    #[command(subcommand)]
+    Runtime(RuntimeCommand),
     /// Show your effective identity and organization permissions
     Whoami,
     /// Manage organizations and choose a default
@@ -114,6 +117,14 @@ pub enum Command {
     },
     /// Make an authenticated request to a path on this Platform origin
     Api(ApiArgs),
+}
+
+#[derive(Subcommand)]
+pub enum RuntimeCommand {
+    /// Download and verify this CLI's pinned runtime without starting a daemon
+    Install,
+    /// Show the pinned release and installation path without downloading
+    Status,
 }
 
 #[derive(Subcommand)]

@@ -28,6 +28,7 @@ For example, use `adapt org members ls` or `adapt sandbox ls --all`.
 | Command | Operations |
 | --- | --- |
 | `auth` | `login`, `status`, `logout` |
+| `runtime` | `install`, `status` (local, no login required) |
 | `skill` | `install`, `show`, `uninstall` |
 | `whoami` | Show your account, organization, and permissions |
 | `org` | `list`, `use`, `current`, `create`, `update`, `delete` |
@@ -225,8 +226,28 @@ Shells have a maximum execution timeout of 24 hours.
 
 ### Local sandboxes
 
+`adapt runtime install` downloads and verifies this CLI build's pinned Goblin
+release without starting a manager. The first supported local operation does the
+same automatically when no compatible manager is already running. `adapt runtime
+status` is read-only: it shows the pin, path, and whether the expected binaries
+are present; installation reuse also verifies their contents.
+
+Downloads use the public runtime endpoint on `platform.adapt.com`, independently
+of cloud profiles and credentials. Archives and their manifests are checked
+against hashes embedded in the CLI. Installed files live under
+`<local-state-dir>/runtimes/<revision>/<target>/`, with private directories and
+serialized, atomic installation. Cached runtimes work offline; images may still
+need to be pulled. Linux releases require glibc 2.36 or newer and access to KVM.
+
+Installing a new release never replaces old files or restarts the manager. A
+compatible running manager is reused. An incompatible or unknown runtime ABI
+requires using the original runtime to migrate/recreate sandboxes, or selecting
+a fresh `--local-state-dir`. Old release directories remain because VM records
+can reference them. `--runtime-dir` / `ADAPT_LOCAL_RUNTIME` explicitly select a
+manual development bundle and bypass managed downloads and pin compatibility.
+
 ```sh
-export ADAPT_LOCAL_RUNTIME=/path/to/goblin-release/bin
+adapt runtime install  # optional prefetch
 adapt sandbox sh --local --image ubuntu:24.04 -- uname -m
 adapt --local sandbox create --image ubuntu:24.04 --env EDITOR=vim --wait
 adapt --local sandbox list
@@ -263,12 +284,11 @@ and `memoryMiB` fields where available, alongside Goblin's diagnostics. Goblin's
 `stopped`, `deleted`, `failed`, or `completed`, and respect `--wait-timeout`.
 Stopping a VM ends its processes; restarting it is not implemented yet.
 
-Supply a compatible Goblin runtime with `--runtime-dir` or `ADAPT_LOCAL_RUNTIME`.
+To use a development bundle, set `--runtime-dir` or `ADAPT_LOCAL_RUNTIME`.
 The directory must contain `goblind` with `--ready-file` and `--unix-socket`
 support and a native `goblin-worker` with matching embedded firmware. The macOS
-worker must be signed with its hypervisor entitlement. Automatic bundle
-installation is not included yet. Adapt discovers a running manager before
-requiring the bundle path again.
+worker must be signed with its hypervisor entitlement. Adapt discovers a running
+manager before requiring the bundle path again.
 
 State, image cache, the local token, discovery metadata, sandbox environment
 files, and `goblind.log` live in `ADAPT_CONFIG_DIR/local` (using the usual config

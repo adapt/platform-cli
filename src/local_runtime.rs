@@ -48,6 +48,10 @@ mod unix {
         socket_path: std::path::PathBuf,
         instance_id: Uuid,
         runtime_version: String,
+        #[serde(default)]
+        release_revision: Option<String>,
+        #[serde(default)]
+        runtime_abi: Option<u32>,
     }
 
     fn private_metadata(path: &Path, directory: bool) -> Result<()> {
@@ -94,7 +98,12 @@ mod unix {
         Ok(bytes)
     }
 
-    async fn discover(state: &Path, token: &str, timeout: Duration) -> Result<Option<Goblin>> {
+    async fn discover(
+        state: &Path,
+        token: &str,
+        timeout: Duration,
+        pin: Option<&crate::runtime::Pin>,
+    ) -> Result<Option<Goblin>> {
         let path = state.join("ready.json");
         let bytes = match read(&path) {
             Ok(bytes) => bytes,
@@ -159,12 +168,45 @@ mod unix {
                 "Local runtime is incompatible or has no embedded image firmware; use a compatible Goblin bundle"
             );
         }
+        if let Some(pin) = pin {
+            compatible_identity(&ready, &spec, pin.runtime_abi)?;
+        }
         Ok(Some(Goblin::new(
             ready.socket_path,
             token,
             state.to_owned(),
             timeout,
         )?))
+    }
+
+    fn compatible_identity(ready: &Ready, spec: &serde_json::Value, abi: u32) -> Result<()> {
+        if ready.runtime_abi != Some(abi)
+            || spec["runtime_abi"].as_u64() != Some(u64::from(abi))
+            || !ready
+                .release_revision
+                .as_ref()
+                .is_some_and(|r| crate::runtime::hex(r, 40))
+            || spec["release_revision"].as_str() != ready.release_revision.as_deref()
+        {
+            bail!(
+                "The running local runtime is incompatible with this CLI's pin. It was left running; use its original CLI/runtime to stop and migrate or recreate sandboxes before changing runtimes"
+            );
+        }
+        Ok(())
+    }
+
+    fn compatible_state(state: &Path, abi: u32) -> Result<()> {
+        if state.join("ready.json").try_exists()? {
+            let previous: Ready = serde_json::from_slice(&read(&state.join("ready.json"))?)?;
+            if previous.runtime_abi == Some(abi) {
+                return Ok(());
+            }
+        } else if !state.join("vms").try_exists()? && !state.join("sandboxes").try_exists()? {
+            return Ok(());
+        }
+        bail!(
+            "Existing local state belongs to a different or unknown runtime ABI; use the original runtime to migrate or recreate its sandboxes, or choose a fresh --local-state-dir"
+        )
     }
 
     pub async fn connect(
@@ -179,7 +221,7 @@ mod unix {
         private_metadata(state, true)?;
         let state = state.canonicalize()?;
         let lock = open(&state.join("bootstrap.lock"), true)?;
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(300);
         loop {
             // SAFETY: the descriptor is live and exclusively owned by this scope.
             if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
@@ -211,10 +253,20 @@ mod unix {
         if token.len() < 32 || token.len() > 4096 || token.chars().any(char::is_whitespace) {
             bail!("Invalid local runtime token file");
         }
-        if let Some(local) = discover(&state, token, timeout).await? {
+        let pin = if runtime.is_none() {
+            crate::runtime::configured_pin()?
+        } else {
+            None
+        };
+        if let Some(local) = discover(&state, token, timeout, pin.as_ref()).await? {
             return Ok(local);
         }
-        let runtime = runtime.context("Set ADAPT_LOCAL_RUNTIME or --runtime-dir to a directory containing goblind and an embedded-firmware goblin-worker; automatic runtime installation is not available yet")?.canonicalize()?;
+        if let Some(pin) = &pin {
+            // Stopped workers and persisted VM records can still reference old binaries.
+            compatible_state(&state, pin.runtime_abi)?;
+        }
+        let runtime = crate::runtime::resolve(&state, runtime, timeout).await?;
+        let deadline = Instant::now() + Duration::from_secs(30);
         let manager = runtime
             .join("goblind")
             .canonicalize()
@@ -263,7 +315,7 @@ mod unix {
         eprintln!("Starting local runtime; log: {}", log_path.display());
         let mut child = command.spawn().context("Cannot start goblind")?;
         loop {
-            if let Some(local) = discover(&state, token, timeout).await? {
+            if let Some(local) = discover(&state, token, timeout, pin.as_ref()).await? {
                 return Ok(local);
             }
             if let Some(status) = child.try_wait()? {
@@ -281,6 +333,48 @@ mod unix {
                 );
             }
             sleep(Duration::from_millis(50)).await;
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use serde_json::json;
+        use std::os::unix::fs::PermissionsExt;
+
+        fn ready() -> serde_json::Value {
+            json!({"version":1,"socket_path":"/unused/goblind.sock","instance_id":Uuid::new_v4(),
+                "runtime_version":"0.1.0","runtime_abi":7,"release_revision":"a".repeat(40)})
+        }
+        #[test]
+        fn runtime_abi_and_exact_discovery_identity_are_required_for_managed_reuse() {
+            let metadata = ready();
+            let ready: Ready = serde_json::from_value(metadata.clone()).unwrap();
+            compatible_identity(&ready, &metadata, 7).unwrap();
+            assert!(compatible_identity(&ready, &metadata, 8).is_err());
+            let mut other = metadata.clone();
+            other["release_revision"] = json!("b".repeat(40));
+            assert!(compatible_identity(&ready, &other, 7).is_err());
+            let mut old = metadata.clone();
+            old.as_object_mut().unwrap().remove("runtime_abi");
+            assert!(
+                compatible_identity(&serde_json::from_value(old.clone()).unwrap(), &old, 7)
+                    .is_err()
+            );
+        }
+        #[test]
+        fn unknown_or_incompatible_persisted_state_is_preserved() {
+            let dir = tempfile::tempdir().unwrap();
+            compatible_state(dir.path(), 7).unwrap();
+            fs::create_dir(dir.path().join("vms")).unwrap();
+            assert!(compatible_state(dir.path(), 7).is_err());
+            let path = dir.path().join("ready.json");
+            let bytes = serde_json::to_vec(&ready()).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            compatible_state(dir.path(), 7).unwrap();
+            assert!(compatible_state(dir.path(), 8).is_err());
+            assert_eq!(fs::read(path).unwrap(), bytes);
+            assert!(dir.path().join("vms").is_dir());
         }
     }
 }

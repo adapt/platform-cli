@@ -24,6 +24,9 @@ use url::Url;
 use uuid::Uuid;
 
 pub async fn run(cli: Cli) -> Result<u8> {
+    if let Command::Runtime(command) = &cli.command {
+        return crate::runtime::run(command, &cli).await;
+    }
     if let Command::Skill(command) = &cli.command {
         skill::run(command, cli.json)?;
         return Ok(0);
@@ -100,7 +103,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
         Duration::from_secs(cli.timeout),
     )?;
     let result = match cli.command {
-        Command::Skill(_) => unreachable!("Skill commands run before API configuration"),
+        Command::Skill(_) | Command::Runtime(_) => unreachable!("Local utility commands run before API configuration"),
         Command::Auth(AuthCommand::Login { no_browser, token_stdin }) => {
             let anonymous = Api::new(origin.clone(), None, None, api.timeout)?;
             let credential = if token_stdin {

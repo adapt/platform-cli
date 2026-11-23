@@ -86,11 +86,10 @@ Use `--no-expiry` to disable automatic expiry.
 
 ### Run sandboxes locally
 
-On Apple Silicon macOS or x86_64 Linux with KVM, point Adapt at a compatible
-Goblin bundle containing `goblind` and an embedded-firmware `goblin-worker`:
+On Apple Silicon macOS or x86_64 Linux with KVM, Adapt downloads and verifies
+its pinned Goblin runtime on first local use:
 
 ```sh
-export ADAPT_LOCAL_RUNTIME=/path/to/goblin-release/bin
 adapt sandbox sh --local --image ubuntu:24.04 -- uname -m
 adapt sandbox sh --local
 adapt --local sandbox create --image ubuntu:24.04 --wait
@@ -103,7 +102,10 @@ Adapt starts and reuses a private local manager without Platform login. The shel
 or command from `sandbox sh` runs in a VM that is deleted when the session ends.
 `sandbox create` keeps the VM for later commands until you stop or delete it. Existing
 commands keep their cloud default; `sandbox sh --cloud` selects it explicitly.
-This initial local workflow requires a manually supplied runtime bundle. See
+Use `adapt runtime install` to download ahead of time and `adapt runtime status`
+to inspect the pin and installation path. Local downloads need no login. Developers
+can still supply `ADAPT_LOCAL_RUNTIME=/path/to/goblin-release/bin` or `--runtime-dir`.
+See
 [local sandbox options and limitations](docs/cli-reference.md#local-sandboxes).
 
 ## Create a sandbox

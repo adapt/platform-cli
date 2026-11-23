@@ -179,3 +179,40 @@ fn invalid_local_environments_fail_before_starting_a_manager_or_creating_state()
         }
     }
 }
+
+#[test]
+fn runtime_utilities_do_not_load_cloud_profiles_or_start_a_manager() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("uncreated");
+    std::fs::write(dir.path().join("config.json"), "invalid cloud config").unwrap();
+    for name in ["goblind", "goblin-worker"] {
+        std::fs::write(dir.path().join(name), "not an executable").unwrap();
+    }
+    for operation in ["status", "install"] {
+        let output = command(dir.path(), "invalid-cloud-origin")
+            .args(["runtime", operation, "--json", "--local-state-dir"])
+            .arg(&state)
+            .arg("--runtime-dir")
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        if cfg!(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )) {
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert!(result["path"].is_string());
+        } else {
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("Local sandboxes currently require")
+            );
+        }
+        assert!(!state.exists());
+    }
+}

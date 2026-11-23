@@ -70,6 +70,15 @@ Use `exec --detach` to return execution metadata immediately, or `exec -it`
 for an interactive terminal. Normal command execution streams output and returns
 the remote exit code.
 
+For a temporary local VM, use `adapt sandbox sh --local` on Apple Silicon macOS
+or x86_64 Linux with KVM. Set `ADAPT_LOCAL_RUNTIME` to a compatible Goblin bundle's
+`bin` directory, or pass `--runtime-dir`. This works without Platform login and
+supports image, CPU, memory, disk, and environment flags. Local TTL, cloud image
+IDs, variable sets, labels, `--data`, image startup, and idempotency keys are not
+supported. Only `sandbox sh` currently accepts the local target; other resource
+commands retain their cloud behavior. Local shells are deleted on exit and do not
+mount host directories. `--cloud` explicitly selects the existing cloud shell.
+
 ```sh
 adapt execs get EXEC_ID
 adapt execs logs EXEC_ID

@@ -1,7 +1,8 @@
 use crate::{
     api::{Api, ApiError},
+    backend::{Sandbox, SandboxBackend},
     cli::{Creation, ExecArgs, SandboxShell},
-    commands::{create_sandbox, execute, resource_id, wait_for},
+    commands::wait_for,
     stream,
 };
 use anyhow::{Context, Result, bail};
@@ -20,7 +21,7 @@ if [ -z "$shell" ] || [ ! -x "$shell" ]; then
 fi
 exec "$shell" -il"#;
 
-pub async fn run(api: &Api, args: SandboxShell, json_output: bool) -> Result<u8> {
+pub fn validate(args: &SandboxShell, json_output: bool) -> Result<()> {
     let interactive = args.argv.is_empty();
     if interactive && json_output {
         bail!("sandbox sh cannot be combined with --json");
@@ -30,9 +31,19 @@ pub async fn run(api: &Api, args: SandboxShell, json_output: bool) -> Result<u8>
         // Fail before creating a sandbox if terminal dimensions cannot be read.
         crossterm::terminal::size()?;
     }
+    Ok(())
+}
+
+pub async fn run(
+    backend: &SandboxBackend<'_>,
+    args: SandboxShell,
+    json_output: bool,
+) -> Result<u8> {
+    validate(&args, json_output)?;
+    let interactive = args.argv.is_empty();
     let mut shutdown = Shutdown::new()?;
 
-    let creation = create_sandbox(api, args.create);
+    let creation = backend.create(args.create);
     tokio::pin!(creation);
     let (created, interrupted) = tokio::select! {
         biased;
@@ -44,7 +55,8 @@ pub async fn run(api: &Api, args: SandboxShell, json_output: bool) -> Result<u8>
         }
         created = &mut creation => (created, None),
     };
-    let id = resource_id(&created?)?;
+    let sandbox = created?;
+    let id = sandbox.id;
     eprintln!("Temporary sandbox: {id}");
     if interactive {
         eprintln!("Exiting the shell or pressing Ctrl-] deletes this sandbox.");
@@ -58,11 +70,14 @@ pub async fn run(api: &Api, args: SandboxShell, json_output: bool) -> Result<u8>
         tokio::select! {
             biased;
             code = shutdown.wait() => Ok(code),
-            result = session(api, id, args.argv, json_output) => result,
+            result = session(backend, &sandbox, args.argv, json_output) => result,
         }
     };
-    let cleanup = cleanup(api, id).await.with_context(|| {
-        format!("Could not delete temporary sandbox {id}; retry with `adapt sandbox delete {id}`")
+    let cleanup = backend.delete(id).await.with_context(|| {
+        format!(
+            "Could not delete temporary sandbox {id}; {}",
+            backend.cleanup_hint(id)
+        )
     });
     match (result, cleanup) {
         (result, Ok(())) => result,
@@ -75,34 +90,41 @@ pub async fn run(api: &Api, args: SandboxShell, json_output: bool) -> Result<u8>
     }
 }
 
-async fn session(api: &Api, id: Uuid, argv: Vec<String>, json_output: bool) -> Result<u8> {
+async fn session(
+    backend: &SandboxBackend<'_>,
+    sandbox: &Sandbox,
+    argv: Vec<String>,
+    json_output: bool,
+) -> Result<u8> {
+    let id = sandbox.id;
     let interactive = argv.is_empty();
-    wait_for(api, "sandboxes", id, "running", 600).await?;
-    execute(
-        api,
-        ExecArgs {
-            sandbox: id.into(),
-            cwd: None,
-            env: vec![],
-            // The API's ordinary command default is ten minutes. An interactive
-            // shell should instead last up to the API maximum or sandbox expiry.
-            timeout_ms: Some(86_400_000),
-            detach: false,
-            stdin: true,
-            tty: interactive,
-            creation: Creation::default(),
-            argv: if interactive {
-                vec!["/bin/sh".into(), "-c".into(), LOGIN_SHELL.into()]
-            } else {
-                argv
+    backend.wait(id).await?;
+    backend
+        .execute(
+            sandbox,
+            ExecArgs {
+                sandbox: id.into(),
+                cwd: None,
+                env: vec![],
+                // The API's ordinary command default is ten minutes. An interactive
+                // shell should instead last up to the API maximum or sandbox expiry.
+                timeout_ms: Some(86_400_000),
+                detach: false,
+                stdin: true,
+                tty: interactive,
+                creation: Creation::default(),
+                argv: if interactive {
+                    vec!["/bin/sh".into(), "-c".into(), LOGIN_SHELL.into()]
+                } else {
+                    argv
+                },
             },
-        },
-        json_output,
-    )
-    .await
+            json_output,
+        )
+        .await
 }
 
-async fn cleanup(api: &Api, id: Uuid) -> Result<()> {
+pub(crate) async fn cleanup_cloud(api: &Api, id: Uuid) -> Result<()> {
     eprintln!("Deleting temporary sandbox {id}…");
     let result: Result<()> = async {
         let response = api

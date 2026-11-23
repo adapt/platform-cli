@@ -84,6 +84,23 @@ Sandboxes expire after one hour by default.
 Use `--ttl SECONDS` to change this time.
 Use `--no-expiry` to disable automatic expiry.
 
+### Run a temporary sandbox locally
+
+On Apple Silicon macOS or x86_64 Linux with KVM, point Adapt at a compatible
+Goblin bundle containing `goblind` and an embedded-firmware `goblin-worker`:
+
+```sh
+export ADAPT_LOCAL_RUNTIME=/path/to/goblin-release/bin
+adapt sandbox sh --local --image ubuntu:24.04 -- uname -m
+adapt sandbox sh --local
+```
+
+Adapt starts and reuses a private local manager without Platform login. The shell
+or command runs in a local VM, which is deleted when the session ends. Existing
+commands keep their cloud default; `sandbox sh --cloud` selects it explicitly.
+This initial local workflow requires a manually supplied runtime bundle. See
+[local sandbox options and limitations](docs/cli-reference.md#local-temporary-sandboxes).
+
 ## Create a sandbox
 
 Create a sandbox that stays available after each command:

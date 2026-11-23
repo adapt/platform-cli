@@ -274,6 +274,37 @@ pub async fn attach(
     let (socket, _) = tokio::time::timeout(api.timeout, tokio_tungstenite::connect_async(request))
         .await
         .context("Timed out attaching to execution")??;
+    terminal(socket, Attachment {
+        after, input, tty, json_output,
+        resume: format!("Resume with `adapt execs attach {id} --after {{sequence}}` (input is never replayed)"),
+        credit: None,
+    }).await
+}
+
+pub struct Attachment {
+    pub after: u64,
+    pub input: bool,
+    pub tty: bool,
+    pub json_output: bool,
+    pub resume: String,
+    /// Goblin grants a bounded stdin window; Platform handles flow control upstream.
+    pub credit: Option<usize>,
+}
+
+pub async fn terminal(
+    socket: tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    attachment: Attachment,
+) -> Result<u8> {
+    let Attachment {
+        after,
+        input,
+        tty,
+        json_output,
+        resume,
+        mut credit,
+    } = attachment;
     let (mut writer, mut reader) = socket.split();
     let _raw = if tty {
         crossterm::terminal::enable_raw_mode()?;
@@ -282,7 +313,7 @@ pub async fn attach(
         None
     };
     if tty {
-        eprintln!("Attached. Ctrl-] detaches; Ctrl-C is sent to the remote terminal.\r");
+        eprintln!("Attached. Ctrl-] detaches; Ctrl-C is sent to the sandbox terminal.\r");
     }
     let mut stdin = tokio::io::stdin();
     let mut buffer = [0u8; 4096];
@@ -291,14 +322,32 @@ pub async fn attach(
     let mut last_size = crossterm::terminal::size().unwrap_or((80, 24));
     let mut resize = tokio::time::interval(Duration::from_millis(250));
     loop {
+        let capacity = credit.unwrap_or(buffer.len()).min(buffer.len());
         tokio::select! {
             message = reader.next() => {
-                let Some(message) = message else { bail!("Attachment disconnected. Resume with `adapt execs attach {id} --after {last_sequence}` (input is never replayed)"); };
+                let Some(message) = message else { bail!("Attachment disconnected. {}", resume.replace("{sequence}", &last_sequence.to_string())); };
                 match message? {
                     Message::Text(text) => {
                         let data: Value = serde_json::from_str(&text)?;
                         let kind = data["kind"].as_str().unwrap_or("");
+                        if let Some(available) = credit.as_mut() {
+                            match kind {
+                                "attached" => {
+                                    *available = data["session"]["stdin_credit"].as_u64().context("Missing stdin credit")?.try_into()?;
+                                    input_open &= data["session"]["stdin_closed"] != true;
+                                },
+                                "started" => *available = 32768,
+                                "stdin_consumed" => {
+                                    let bytes: usize = data["bytes"].as_u64().context("Missing stdin consumption")?.try_into()?;
+                                    *available = available.checked_add(bytes).context("Invalid stdin credit")?;
+                                },
+                                "stdin_closed" => input_open = false,
+                                _ => {},
+                            }
+                            if *available > 32768 { bail!("Invalid stdin credit window"); }
+                        }
                         match kind {
+                            "error" | "rejected" => bail!("Execution failed: {}", output::safe(data["message"].as_str().unwrap_or("runtime rejected the stream"))),
                             "stdout" | "stderr" => {
                                 let sequence = data["sequence"].as_u64().context("Missing live output sequence")?;
                                 if sequence <= last_sequence { continue; }
@@ -319,11 +368,11 @@ pub async fn attach(
                         }
                     },
                     Message::Ping(bytes) => writer.send(Message::Pong(bytes)).await?,
-                    Message::Close(_) => bail!("Attachment closed before a result. Resume with `adapt execs attach {id} --after {last_sequence}`"),
+                    Message::Close(_) => bail!("Attachment closed before a result. {}", resume.replace("{sequence}", &last_sequence.to_string())),
                     _ => {},
                 }
             },
-            count = stdin.read(&mut buffer), if input_open => {
+            count = stdin.read(&mut buffer[..capacity]), if input_open && capacity > 0 => {
                 let count = count?;
                 if count == 0 {
                     input_open = false;
@@ -333,6 +382,7 @@ pub async fn attach(
                         writer.close().await?;
                         return Ok(0);
                     }
+                    if let Some(available) = credit.as_mut() { *available -= count; }
                     writer.send(Message::Binary(buffer[..count].to_vec().into())).await?;
                 }
             },

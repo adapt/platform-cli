@@ -1,9 +1,11 @@
 mod api;
 mod auth;
+mod backend;
 mod cli;
 mod commands;
 mod config;
 mod input;
+mod local_runtime;
 mod mcp;
 mod output;
 mod shell;

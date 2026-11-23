@@ -27,6 +27,29 @@ pub async fn run(cli: Cli) -> Result<u8> {
         skill::run(command, cli.json)?;
         return Ok(0);
     }
+    if matches!(&cli.command, Command::Sandbox(SandboxCommand::Sh(args)) if args.local_target) {
+        let Command::Sandbox(SandboxCommand::Sh(args)) = cli.command else {
+            unreachable!()
+        };
+        crate::backend::local::validate(&args.create)?;
+        shell::validate(&args, cli.json)?;
+        let dir = match &args.local_state_dir {
+            Some(dir) => dir.clone(),
+            None => config::directory(cli.config_dir.as_deref())?.join("local"),
+        };
+        let local = crate::local_runtime::connect(
+            &dir,
+            args.runtime_dir.as_deref(),
+            Duration::from_secs(cli.timeout),
+        )
+        .await?;
+        return shell::run(
+            &crate::backend::SandboxBackend::Local(&local),
+            args,
+            cli.json,
+        )
+        .await;
+    }
     let dir = config::directory(cli.config_dir.as_deref())?;
     let mut config = Config::load(&dir)?;
     // --profile and ADAPT_PROFILE share one value (the flag wins), so one check covers both.
@@ -162,7 +185,7 @@ pub async fn run(cli: Cli) -> Result<u8> {
             OrgCommand::Members(command) => members(&api, command).await?,
             OrgCommand::Invitations(command) => invitations(&api, command).await?,
         },
-        Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(&api, args, cli.json).await,
+        Command::Sandbox(SandboxCommand::Sh(args)) => return shell::run(&crate::backend::SandboxBackend::Cloud(&api), args, cli.json).await,
         Command::Sandbox(SandboxCommand::List(args)) => return list_sandboxes(&api, args, cli.json).await,
         Command::Sandbox(SandboxCommand::Usage { id, hours }) => return sandbox_usage(&api, id, hours, cli.json).await,
         Command::Sandbox(command) => sandbox(&api, command).await?,

@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     path::Path,
     process::{Command, Output, Stdio},
     thread::{self, JoinHandle},
@@ -56,7 +56,9 @@ impl Reply {
 pub type Handler = Box<dyn FnOnce(&Request) -> Reply + Send>;
 pub type Exchange = Box<dyn FnOnce(TestSocket) -> Request + Send>;
 
-pub struct TestSocket(TcpStream);
+trait SocketIo: Read + Write {}
+impl<T: Read + Write> SocketIo for T {}
+pub struct TestSocket(Box<dyn SocketIo + Send>);
 
 impl Read for TestSocket {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -171,7 +173,7 @@ impl Server {
                 socket
                     .set_read_timeout(Some(Duration::from_secs(10)))
                     .unwrap();
-                requests.push(step(TestSocket(socket)));
+                requests.push(step(TestSocket(Box::new(socket))));
             }
             requests
         });
@@ -179,6 +181,47 @@ impl Server {
     }
     pub fn finish(self) -> Vec<Request> {
         self.handle.join().unwrap()
+    }
+
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64")
+    ))]
+    pub fn unix(path: &Path, steps: Vec<Exchange>) -> Self {
+        use std::os::unix::{fs::PermissionsExt, net::UnixListener};
+        let listener = UnixListener::bind(path).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let handle = thread::spawn(move || {
+            steps
+                .into_iter()
+                .map(|step| {
+                    let deadline = Instant::now() + Duration::from_secs(30);
+                    let socket = loop {
+                        match listener.accept() {
+                            Ok((socket, _)) => break socket,
+                            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                            Err(e)
+                                if e.kind() == io::ErrorKind::WouldBlock
+                                    && Instant::now() < deadline =>
+                            {
+                                thread::sleep(Duration::from_millis(5))
+                            }
+                            other => panic!("Expected another Unix socket request, got {other:?}"),
+                        }
+                    };
+                    socket.set_nonblocking(false).unwrap();
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(10)))
+                        .unwrap();
+                    step(TestSocket(Box::new(socket)))
+                })
+                .collect()
+        });
+        Self {
+            url: "http://localhost".into(),
+            handle,
+        }
     }
 }
 

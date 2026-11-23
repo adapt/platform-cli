@@ -12,7 +12,7 @@ use std::{
 use tokio_tungstenite::tungstenite::{self, Message};
 
 const TOKEN: &str = "local-runtime-token-that-is-not-a-cloud-token";
-const INSTANCE: &str = "11111111111111111111111111111111";
+const INSTANCE: &str = "11111111-1111-4111-8111-111111111111";
 
 fn private_file(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
@@ -315,6 +315,19 @@ fn rejects_untrusted_discovery_before_sending_a_token() {
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid local runtime discovery"));
+    private_file(
+        &dir.path().join("ready.json"),
+        json!({"version":1,"address":"127.0.0.1:1","instance_id":"not-a-uuid","runtime_version":"test"})
+            .to_string()
+            .as_bytes(),
+    );
+    let output = command_for(dir.path())
+        .args(["--", "true"])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Invalid local runtime discovery file")
+    );
     fs::set_permissions(dir.path().join("token"), fs::Permissions::from_mode(0o644)).unwrap();
     let output = command_for(dir.path())
         .args(["--", "true"])
@@ -362,13 +375,21 @@ fn concurrent_clients_bootstrap_one_detached_manager_and_reuse_it() {
     };
     let one = launch();
     let two = launch();
-    for child in [one, two] {
-        let output = child.wait_with_output().unwrap();
+    let outputs = [
+        one.wait_with_output().unwrap(),
+        two.wait_with_output().unwrap(),
+    ];
+    let diagnostics = format!(
+        "first client: {}\nsecond client: {}\nmanager log: {}",
+        String::from_utf8_lossy(&outputs[0].stderr),
+        String::from_utf8_lossy(&outputs[1].stderr),
+        fs::read_to_string(state.join("goblind.log")).unwrap_or_default()
+    );
+    for output in outputs {
         assert_eq!(output.status.code(), Some(1));
         assert!(
             String::from_utf8_lossy(&output.stderr).contains("fixture rejected image"),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+            "{diagnostics}"
         );
     }
     assert_eq!(

@@ -66,14 +66,15 @@ def pin_release(revision, destination, base=DEFAULT_BASE, opener=None):
         if size != record["size"] or h.hexdigest() != record["sha256"]:
             raise ValueError("Published runtime archive checksum mismatch")
     # Update only after both exact artifacts are available and verified.
-    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as file:
-        temporary = Path(file.name)
-        try:
+    file = tempfile.NamedTemporaryFile(dir=destination.parent, delete=False)
+    temporary = Path(file.name)
+    try:
+        with file:
             file.write((json.dumps(pin, sort_keys=True, indent=2) + "\n").encode())
-            file.flush()
-            temporary.replace(destination)
-        finally:
-            temporary.unlink(missing_ok=True)
+        # Close before replacement so this also works on Windows.
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
     return pin
 
 

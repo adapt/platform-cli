@@ -283,8 +283,11 @@ records are rejected. Concurrent commands reuse one manager.
 Local creation accepts `--image`, `--cpu`, `--memory`, `--disk`, and repeated
 `--env`. Defaults are `ubuntu:24.04`, one CPU, 1024 MiB memory, and a 2048 MiB
 writable disk. Environment values are stored in private files and applied by
-later `adapt exec` commands; execution `--env` flags override them. They are not
-image startup configuration. The guest can reach public internet destinations,
+later `adapt exec` commands; execution `--env` flags override them. Names must
+match `[A-Za-z_][A-Za-z0-9_]*` and be at most 128 bytes. Goblin allows 128 variables
+and 32 KiB of names and values combined; values cannot contain NUL. Adapt checks
+these limits before creation and again after merging execution overrides. They
+are not image startup configuration. The guest can reach public internet destinations,
 with private/loopback egress blocked by Goblin's public policy. Host mounts and
 local/cloud moves are not implemented.
 
@@ -300,8 +303,10 @@ queues up to 32 KiB locally; further input is discarded with a warning until the
 guest resumes reading. Piped input is backpressured without discarding bytes.
 Temporary shells have a 24-hour execution limit. An uncatchable CLI kill or failed
 cleanup can leave a VM behind; use `adapt --local sandbox list` and `delete` to
-inspect and remove it. Local logs and session output do not have Platform's
-retained, redacted log service.
+inspect and remove it. Adapt releases completed execution sessions after the
+stream closes, retrying while Goblin processes the detach. A disconnect from a running command does not
+cancel it; its retained session remains until sandbox deletion. Local logs and
+session output do not have Platform's retained, redacted log service.
 
 ### Sandbox options
 

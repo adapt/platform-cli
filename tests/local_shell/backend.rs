@@ -1,6 +1,6 @@
 use super::*;
 
-fn local_command(state: &Path, args: &[&str]) -> Command {
+pub(super) fn local_command(state: &Path, args: &[&str]) -> Command {
     let mut cmd = command(state, "not-a-valid-cloud-origin");
     cmd.env("ADAPT_TOKEN", "cloud-secret-must-not-reach-goblin")
         .env("HTTP_PROXY", "http://127.0.0.1:1")
@@ -78,44 +78,43 @@ fn persistent_sandbox_lifecycle_uses_one_backend_across_cli_invocations() {
         session: String::new(),
     }));
     let executing = ids.clone();
-    let server = Server::unix(
-        &dir.path().join("goblind.sock"),
-        vec![
-            spec(),
-            http(Box::new(move |r| {
-                local_auth(r);
-                let mut ids = executing.lock().unwrap();
-                assert_eq!(r.target, format!("/v1/vms/{}/sessions", ids.vm));
-                let body = r.json();
-                ids.session = body["id"].as_str().unwrap().into();
-                assert_eq!(
-                    body["env"],
-                    json!({"BASE":"literal value","OVERRIDE":"new"})
-                );
-                assert_eq!(body["cwd"], "/tmp");
-                assert_eq!(body["timeout_ms"], 5000);
-                assert_eq!(body["stdin"], false);
-                assert_eq!(body["argv"], json!(["true"]));
-                Reply::json(202, json!({"id":ids.session,"state":"starting"}))
-            })),
-            stream(ids, |mut ws| {
-                send(
-                    &mut ws,
-                    json!({"kind":"attached","session":{"stdin_closed":true,"stdin_credit":0}}),
-                );
-                send(
-                    &mut ws,
-                    json!({"kind":"stdout","sequence":1,"data_base64":"cGVyc2lzdGVudAo="}),
-                );
-                send(&mut ws, json!({"kind":"finished","exit":{"code":7}}));
-                while let Ok(message) = ws.read() {
-                    if matches!(message, Message::Close(_)) {
-                        break;
-                    }
+    let mut steps = vec![
+        spec(),
+        http(Box::new(move |r| {
+            local_auth(r);
+            let mut ids = executing.lock().unwrap();
+            assert_eq!(r.target, format!("/v1/vms/{}/sessions", ids.vm));
+            let body = r.json();
+            ids.session = body["id"].as_str().unwrap().into();
+            assert_eq!(
+                body["env"],
+                json!({"BASE":"literal value","OVERRIDE":"new"})
+            );
+            assert_eq!(body["cwd"], "/tmp");
+            assert_eq!(body["timeout_ms"], 5000);
+            assert_eq!(body["stdin"], false);
+            assert_eq!(body["argv"], json!(["true"]));
+            Reply::json(202, json!({"id":ids.session,"state":"starting"}))
+        })),
+        stream(ids.clone(), |mut ws| {
+            send(
+                &mut ws,
+                json!({"kind":"attached","session":{"stdin_closed":true,"stdin_credit":0}}),
+            );
+            send(
+                &mut ws,
+                json!({"kind":"stdout","sequence":1,"data_base64":"cGVyc2lzdGVudAo="}),
+            );
+            send(&mut ws, json!({"kind":"finished","exit":{"code":7}}));
+            while let Ok(message) = ws.read() {
+                if matches!(message, Message::Close(_)) {
+                    break;
                 }
-            }),
-        ],
-    );
+            }
+        }),
+    ];
+    steps.extend(session_cleanup(ids, "exited"));
+    let server = Server::unix(&dir.path().join("goblind.sock"), steps);
     let output = local_command(
         dir.path(),
         &[

@@ -1,4 +1,5 @@
 mod backend;
+mod sessions;
 use crate::support::*;
 use serde_json::{Value, json};
 use std::{
@@ -151,6 +152,33 @@ fn stream(
     })
 }
 
+fn session_cleanup(ids: Arc<Mutex<Ids>>, state: &'static str) -> Vec<Exchange> {
+    let inspected = ids.clone();
+    let mut steps = vec![http(Box::new(move |r| {
+        local_auth(r);
+        let ids = inspected.lock().unwrap();
+        assert_eq!(r.method, "GET");
+        assert_eq!(
+            r.target,
+            format!("/v1/vms/{}/sessions/{}", ids.vm, ids.session)
+        );
+        Reply::json(200, json!({"id":ids.session,"state":state}))
+    }))];
+    if matches!(state, "exited" | "failed") {
+        steps.push(http(Box::new(move |r| {
+            local_auth(r);
+            let ids = ids.lock().unwrap();
+            assert_eq!(r.method, "DELETE");
+            assert_eq!(
+                r.target,
+                format!("/v1/vms/{}/sessions/{}", ids.vm, ids.session)
+            );
+            Reply::json(204, Value::Null)
+        })));
+    }
+    steps
+}
+
 fn deleted(ids: Arc<Mutex<Ids>>) -> Exchange {
     http(Box::new(move |r| {
         local_auth(r);
@@ -217,6 +245,7 @@ fn local_shell_uses_its_own_credentials_honors_credit_and_cleans_up_on_nonzero_e
             }
         }
     }));
+    steps.extend(session_cleanup(ids.clone(), "exited"));
     steps.push(deleted(ids));
     let dir = tempfile::tempdir().unwrap();
     discovery(dir.path());
@@ -245,6 +274,7 @@ fn local_stream_failure_still_deletes_the_vm() {
             json!({"kind":"error","message":"guest execution failed"}),
         );
     }));
+    steps.extend(session_cleanup(ids.clone(), "failed"));
     steps.push(deleted(ids));
     let dir = tempfile::tempdir().unwrap();
     discovery(dir.path());
@@ -478,6 +508,7 @@ fn terminal_detaches_with_zero_credit_even_after_the_input_queue_fills() {
             }
             assert!(matches!(ws.read().unwrap(), Message::Close(_)));
         }));
+        steps.extend(session_cleanup(ids.clone(), "running"));
         steps.push(terminal.restored_then(deleted(ids)));
         let dir = tempfile::tempdir().unwrap();
         discovery(dir.path());

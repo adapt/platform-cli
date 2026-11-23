@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
-use std::{path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use tokio::sync::OnceCell;
 use tokio::time::{Instant, sleep};
 #[cfg(unix)]
@@ -45,6 +45,41 @@ pub fn validate(args: &SandboxCreate) -> Result<()> {
         if present {
             bail!("{flag} is not supported by the local backend");
         }
+    }
+    validate_environment(&args.env.iter().cloned().collect())
+}
+
+/// Match goblin-protocol's ExecRequest environment contract before accepting
+/// persistent defaults. Validate the merged environment again before execution.
+fn validate_environment(env: &BTreeMap<String, String>) -> Result<()> {
+    if env.len() > 128 {
+        bail!("Local command environment supports at most 128 variables");
+    }
+    if env
+        .iter()
+        .map(|(key, value)| key.len() + value.len())
+        .sum::<usize>()
+        > 32768
+    {
+        bail!("Local command environment exceeds 32768 bytes (names and values)");
+    }
+    for (key, value) in env {
+        if key.is_empty()
+            || key.len() > 128
+            || !key.bytes().enumerate().all(|(index, byte)| {
+                byte == b'_' || byte.is_ascii_alphabetic() || (index > 0 && byte.is_ascii_digit())
+            })
+        {
+            bail!(
+                "Invalid local environment variable name: use [A-Za-z_][A-Za-z0-9_]* with at most 128 bytes"
+            );
+        }
+        if value.contains('\0') {
+            bail!("Local command environment values cannot contain NUL");
+        }
+    }
+    if serde_json::to_vec(env)?.len() > 65536 {
+        bail!("Encoded local command environment exceeds 64 KiB");
     }
     Ok(())
 }
@@ -192,6 +227,7 @@ impl Goblin {
         let id = full_id(args.sandbox.clone())?;
         let mut env = metadata::load(&self.state_dir, id)?;
         env.extend(args.env);
+        validate_environment(&env)?;
         let mut body = json!({"id":session.to_string(), "argv":args.argv, "env":env, "cwd":args.cwd,
             "stdin":args.stdin || args.tty, "timeout_ms":args.timeout_ms});
         if args.tty {
@@ -206,33 +242,89 @@ impl Goblin {
             Some(&body),
         )
         .await?;
-        let mut url = self
-            .origin
-            .join(&format!("{path}/stream?after=0&read_only=false"))?;
-        url.set_scheme("ws")
-            .map_err(|_| anyhow::anyhow!("Invalid local stream URL"))?;
-        let mut request = url.as_str().into_client_request()?;
-        request.headers_mut().extend(self.headers.clone());
-        let (socket, _) = tokio::time::timeout(self.timeout, async {
-            let stream = tokio::net::UnixStream::connect(&self.socket_path).await?;
-            tokio_tungstenite::client_async(request, stream).await
+        // Finish dropping the WebSocket (and restoring the terminal) before
+        // deletion. Goblin may take another event-loop turn to observe detach.
+        let result: Result<u8> = async {
+            let mut url = self
+                .origin
+                .join(&format!("{path}/stream?after=0&read_only=false"))?;
+            url.set_scheme("ws")
+                .map_err(|_| anyhow::anyhow!("Invalid local stream URL"))?;
+            let mut request = url.as_str().into_client_request()?;
+            request.headers_mut().extend(self.headers.clone());
+            let (socket, _) = tokio::time::timeout(self.timeout, async {
+                let stream = tokio::net::UnixStream::connect(&self.socket_path).await?;
+                tokio_tungstenite::client_async(request, stream).await
+            })
+            .await
+            .context("Timed out attaching to local execution")??;
+            stream::terminal(
+                socket,
+                stream::Attachment {
+                    after: 0,
+                    input: args.stdin || args.tty,
+                    tty: args.tty,
+                    json_output,
+                    resume: format!(
+                        "Local sandbox: {id}. Use `adapt --local sandbox delete {id}` to remove it."
+                    ),
+                    credit: Some(0),
+                },
+            )
+            .await
+        }
+        .await;
+        let cleanup = self.cleanup_session(&path).await.with_context(|| {
+            format!("Could not release local execution session {session} in sandbox {id}")
+        });
+        match (result, cleanup) {
+            (result, Ok(())) => result,
+            (Ok(0), Err(error)) => Err(error),
+            (Ok(code), Err(error)) => {
+                eprintln!("error: {error:#}");
+                Ok(code)
+            }
+            (Err(error), Err(cleanup)) => Err(error.context(format!("{cleanup:#}"))),
+        }
+    }
+
+    #[cfg(unix)]
+    async fn cleanup_session(&self, path: &str) -> Result<()> {
+        tokio::time::timeout(self.timeout, async {
+            let info = match self.request(Method::GET, path, None).await {
+                Ok(info) => info,
+                Err(error)
+                    if error
+                        .downcast_ref::<LocalError>()
+                        .is_some_and(|e| e.status == StatusCode::NOT_FOUND) =>
+                {
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
+            match info["state"].as_str() {
+                // Ctrl-] and lost connections detach without cancelling work.
+                Some("starting" | "running" | "stopping" | "deleted") => return Ok(()),
+                Some("exited" | "failed") => {}
+                _ => bail!("Local execution response has no recognized state"),
+            }
+            loop {
+                match self.request(Method::DELETE, path, None).await {
+                    Ok(_) => return Ok(()),
+                    Err(error) => match error.downcast_ref::<LocalError>().map(|e| e.status) {
+                        Some(StatusCode::NOT_FOUND) => return Ok(()),
+                        // A finished session remains pinned until Goblin has
+                        // processed the closing stream. Never stop a live one.
+                        Some(StatusCode::CONFLICT | StatusCode::TOO_MANY_REQUESTS) => {
+                            sleep(Duration::from_millis(50)).await
+                        }
+                        _ => return Err(error),
+                    },
+                }
+            }
         })
         .await
-        .context("Timed out attaching to local execution")??;
-        stream::terminal(
-            socket,
-            stream::Attachment {
-                after: 0,
-                input: args.stdin || args.tty,
-                tty: args.tty,
-                json_output,
-                resume: format!(
-                    "Local sandbox: {id}. Use `adapt --local sandbox delete {id}` to remove it."
-                ),
-                credit: Some(0),
-            },
-        )
-        .await
+        .context("Timed out releasing the completed local execution session")?
     }
 
     #[cfg(not(unix))]
@@ -394,6 +486,7 @@ impl Backend for LocalBackend {
     }
     async fn execute(&self, args: ExecArgs, json: bool) -> Result<u8> {
         full_id(args.sandbox.clone())?;
+        validate_environment(&args.env.iter().cloned().collect())?;
         if args.detach {
             return self.unsupported("exec --detach");
         }
@@ -461,10 +554,8 @@ mod metadata {
 
     pub fn save(state: &Path, id: Uuid, pairs: &[(String, String)]) -> Result<()> {
         let env: BTreeMap<_, _> = pairs.iter().cloned().collect();
+        super::validate_environment(&env)?;
         let bytes = serde_json::to_vec(&env)?;
-        if bytes.len() > 65536 {
-            bail!("Local sandbox environment exceeds 64 KiB");
-        }
         // State was validated as private by discovery. Atomic publication keeps
         // a subsequent exec from reading a partially-written environment.
         let mut file = tempfile::NamedTempFile::new_in(state)?;
@@ -505,5 +596,71 @@ mod metadata {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_names_and_values_match_goblin_rules_without_echoing_secrets() {
+        for key in [
+            "",
+            "BAD-NAME",
+            "0NAME",
+            "NAME.KEY",
+            "NÅME",
+            "A\0B",
+            &"A".repeat(129),
+        ] {
+            let error =
+                validate_environment(&BTreeMap::from([(key.into(), "do-not-print".into())]))
+                    .unwrap_err();
+            assert!(error.to_string().contains("environment variable name"));
+            assert!(!error.to_string().contains("do-not-print"));
+        }
+        assert!(validate_environment(&BTreeMap::from([("VALID".into(), "a\0b".into())])).is_err());
+        validate_environment(&BTreeMap::from([
+            ("_".into(), "".into()),
+            ("a_9".into(), " a=b\n$HOME 🦀 ".into()),
+            ("A".repeat(128), "ok".into()),
+        ]))
+        .unwrap();
+    }
+
+    #[test]
+    fn environment_count_and_size_boundaries_use_distinct_names_and_utf8_bytes() {
+        let mut env: BTreeMap<_, _> = (0..128).map(|i| (format!("KEY_{i}"), "x".into())).collect();
+        validate_environment(&env).unwrap();
+        env.insert("KEY_0".into(), "replacement".into());
+        validate_environment(&env).unwrap();
+        env.insert("EXTRA".into(), "x".into());
+        assert!(
+            validate_environment(&env)
+                .unwrap_err()
+                .to_string()
+                .contains("128 variables")
+        );
+        let mut env = BTreeMap::from([("KEY".into(), "é".repeat(16382) + "x")]);
+        validate_environment(&env).unwrap(); // 3 + 32764 + 1 = 32768 bytes
+        env.get_mut("KEY").unwrap().push('x');
+        assert!(
+            validate_environment(&env)
+                .unwrap_err()
+                .to_string()
+                .contains("32768 bytes")
+        );
+    }
+
+    #[test]
+    fn encoded_environment_must_fit_private_metadata_before_creation() {
+        let env = BTreeMap::from([("KEY".into(), "\u{1}".repeat(12000))]);
+        assert!(
+            validate_environment(&env)
+                .unwrap_err()
+                .to_string()
+                .contains("64 KiB")
+        );
     }
 }

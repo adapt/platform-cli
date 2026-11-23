@@ -96,7 +96,8 @@ adapt sandbox sh --local
 adapt --local sandbox create --image ubuntu:24.04 --wait
 adapt --local sandbox list
 adapt --local exec SANDBOX_ID -- uname -m
-adapt --local sandbox delete SANDBOX_ID\```
+adapt --local sandbox delete SANDBOX_ID
+```
 
 Adapt starts and reuses a private local manager without Platform login. The shell
 or command from `sandbox sh` runs in a VM that is deleted when the session ends.

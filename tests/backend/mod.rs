@@ -136,3 +136,46 @@ fn local_logout_still_removes_only_the_saved_credential() {
             .contains("saved-secret")
     );
 }
+
+#[test]
+fn invalid_local_environments_fail_before_starting_a_manager_or_creating_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("uncreated");
+    let cases = [
+        vec!["BAD-NAME=do-not-print".to_string()],
+        vec!["0NAME=do-not-print".to_string()],
+        vec!["NÅME=do-not-print".to_string()],
+        vec![format!("{}=do-not-print", "N".repeat(129))],
+        (0..129).map(|i| format!("KEY_{i}=do-not-print")).collect(),
+    ];
+    #[cfg(unix)]
+    let cases = cases.into_iter().chain([
+        vec![format!("KEY={}", "x".repeat(32766))],
+        vec![format!("KEY={}", "\u{1}".repeat(12000))],
+    ]);
+    for env in cases {
+        for args in [
+            vec!["sandbox", "create"],
+            vec!["sandbox", "sh"],
+            vec!["exec", ID],
+        ] {
+            let mut cmd = command(dir.path(), "invalid-cloud-origin");
+            cmd.args(["--local", "--local-state-dir"])
+                .arg(&state)
+                .args(&args);
+            for entry in &env {
+                cmd.args(["--env", entry]);
+            }
+            if args[0] == "exec" || args[1] == "sh" {
+                cmd.args(["--", "true"]);
+            }
+            let output = cmd.output().unwrap();
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{args:?}: {error}");
+            assert!(error.contains("environment"), "{error}");
+            assert!(!error.contains("do-not-print"));
+            assert!(output.stdout.is_empty());
+            assert!(!state.exists());
+        }
+    }
+}

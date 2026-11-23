@@ -8,6 +8,7 @@ mod input;
 mod local_runtime;
 mod mcp;
 mod output;
+mod runtime;
 mod shell;
 mod skill;
 mod stream;

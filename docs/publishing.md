@@ -112,3 +112,30 @@ Run `python3 -m unittest discover -s scripts -p '*_test.py'`. Tests cover comple
 and interrupted publication, stale runs, immutable retries, corrupt manifests,
 and packaging only the intended executable. The first public build appears
 after this workflow reaches `main` and its checks pass.
+
+
+## Pinning the local runtime
+
+`runtime-lock.json` is compiled into every CLI executable. It contains one exact
+Goblin revision, its compatibility metadata, and archive/manifest hashes for both
+supported runtime targets. There is no runtime `latest` lookup. Update it with:
+
+```sh
+python3 scripts/pin_runtime.py GOBLIN_REVISION
+```
+
+The command reads the public immutable lock and verifies both archives before
+atomically changing the source pin. Review the resulting diff and run CI before
+releasing the CLI. `--base-url` supports fetching a pin from another trusted HTTPS
+mirror during development; runtime downloads still use the production endpoint.
+
+The first rollout is ordered: deploy Platform's `/runtime/goblin` route, merge
+Goblin's runtime publisher, configure its signing/OIDC environment, publish and
+qualify both runtime bundles, then fill this CLI's pin and merge the CLI change.
+The initial development lock is `null` until real artifacts exist. Unit tests and
+manual `--runtime-dir` operation support that state; both publication jobs reject
+it, so a CLI with an unconfigured managed runtime cannot be released.
+
+Goblin owns Developer ID signing and notarization of the macOS runtime. This
+change does not add Developer ID signing to the `adapt` executable. Runtime
+upgrades do not restart managers or delete old installations automatically.

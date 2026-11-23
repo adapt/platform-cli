@@ -228,7 +228,7 @@ Shells have a maximum execution timeout of 24 hours.
 
 `adapt runtime install` downloads and verifies this CLI build's pinned Goblin
 release without starting a manager. The first supported local operation does the
-same automatically when no compatible manager is already running. `adapt runtime
+same automatically when no manager is already running. `adapt runtime
 status` is read-only: it shows the pin, path, and whether the expected binaries
 are present; installation reuse also verifies their contents.
 
@@ -239,12 +239,10 @@ against hashes embedded in the CLI. Installed files live under
 serialized, atomic installation. Cached runtimes work offline; images may still
 need to be pulled. Linux releases require glibc 2.36 or newer and access to KVM.
 
-Installing a new release never replaces old files or restarts the manager. A
-compatible running manager is reused. An incompatible or unknown runtime ABI
-requires using the original runtime to migrate/recreate sandboxes, or selecting
-a fresh `--local-state-dir`. Old release directories remain because VM records
-can reference them. `--runtime-dir` / `ADAPT_LOCAL_RUNTIME` explicitly select a
-manual development bundle and bypass managed downloads and pin compatibility.
+Installing a new release never replaces old files or restarts the manager.
+A running manager is reused without runtime ABI or persisted-state compatibility
+checks. Old release directories remain because VM records can reference them.
+`--runtime-dir` / `ADAPT_LOCAL_RUNTIME` explicitly select a manual development bundle.
 
 ```sh
 adapt runtime install  # optional prefetch

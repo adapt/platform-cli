@@ -4,10 +4,8 @@ use crate::{
     config, output,
 };
 use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::BTreeMap,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -19,54 +17,17 @@ mod install;
 #[cfg(test)]
 mod tests;
 
-pub const MAX_ARCHIVE: u64 = 512 * 1024 * 1024;
+mod pin;
+#[cfg(any(unix, test))]
+pub use pin::Artifact;
+#[cfg(test)]
+pub use pin::MAX_ARCHIVE;
+pub use pin::Pin;
+#[cfg(unix)]
+pub use pin::hex;
 #[cfg(unix)]
 const DOWNLOAD_BASE: &str = "https://platform.adapt.com/runtime/goblin/";
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Pin {
-    pub format: u32,
-    pub revision: String,
-    pub api_version: u32,
-    pub runtime_abi: u32,
-    pub guest_protocol: u32,
-    pub targets: BTreeMap<String, Artifact>,
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Artifact {
-    pub sha256: String,
-    pub manifest_sha256: String,
-    pub size: u64,
-}
-pub fn hex(value: &str, length: usize) -> bool {
-    value.len() == length
-        && value
-            .bytes()
-            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-}
-impl Pin {
-    pub fn validate(&self) -> Result<()> {
-        if self.format != 1
-            || self.api_version != 1
-            || !hex(&self.revision, 40)
-            || self.runtime_abi == 0
-            || self.guest_protocol == 0
-            || self.targets.keys().map(String::as_str).collect::<Vec<_>>()
-                != ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
-            || self.targets.values().any(|a| {
-                !hex(&a.sha256, 64)
-                    || !hex(&a.manifest_sha256, 64)
-                    || a.size == 0
-                    || a.size > MAX_ARCHIVE
-            })
-        {
-            bail!("Invalid or unsupported local runtime pin");
-        }
-        Ok(())
-    }
-}
 pub fn configured_pin() -> Result<Option<Pin>> {
     let pin: Option<Pin> = serde_json::from_str(include_str!("../runtime-lock.json"))?;
     if let Some(pin) = &pin {

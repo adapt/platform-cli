@@ -34,11 +34,10 @@ mod unix {
     use std::{
         fs::{self, File, OpenOptions},
         io::{Read, Write},
-        net::SocketAddr,
         os::{
             fd::AsRawFd,
             unix::{
-                fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+                fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt},
                 process::CommandExt,
             },
         },
@@ -50,7 +49,7 @@ mod unix {
     #[derive(Deserialize)]
     struct Ready {
         version: u32,
-        address: SocketAddr,
+        socket_path: std::path::PathBuf,
         instance_id: Uuid,
         runtime_version: String,
     }
@@ -118,11 +117,29 @@ mod unix {
         };
         let ready: Ready =
             serde_json::from_slice(&bytes).context("Invalid local runtime discovery file")?;
-        if ready.version != 1 || !ready.address.ip().is_loopback() || ready.address.port() == 0 {
+        if ready.version != 1 || ready.socket_path != state.join("goblind.sock") {
             bail!("Unsupported or invalid local runtime discovery metadata");
         }
-        let origin = format!("http://{}/", ready.address).parse()?;
-        let probe = LocalBackend::new(origin, token, state.to_owned(), Duration::from_secs(2))?;
+        let meta = match fs::symlink_metadata(&ready.socket_path) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        // The private directory prevents other users from replacing this endpoint.
+        // Reject symlinks and foreign sockets before transmitting the bearer.
+        // SAFETY: geteuid has no arguments or memory effects.
+        if !meta.file_type().is_socket()
+            || meta.uid() != unsafe { libc::geteuid() }
+            || meta.mode() & 0o077 != 0
+        {
+            bail!("Local runtime socket must be private and user-owned");
+        }
+        let probe = LocalBackend::new(
+            ready.socket_path.clone(),
+            token,
+            state.to_owned(),
+            Duration::from_secs(2),
+        )?;
         let spec = match probe.request(Method::GET, "/v1/spec", None).await {
             Ok(spec) => spec,
             Err(error)
@@ -151,7 +168,7 @@ mod unix {
             );
         }
         Ok(Some(LocalBackend::new(
-            format!("http://{}/", ready.address).parse()?,
+            ready.socket_path,
             token,
             state.to_owned(),
             timeout,
@@ -221,9 +238,9 @@ mod unix {
             .args([
                 "--state-dir",
                 state.to_str().context("Local runtime path must be UTF-8")?,
-                "--listen",
-                "127.0.0.1:0",
             ])
+            .arg("--unix-socket")
+            .arg(state.join("goblind.sock"))
             .arg("--worker")
             .arg(worker)
             .arg("--token-file")

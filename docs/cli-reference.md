@@ -239,7 +239,7 @@ flags currently apply to `sandbox sh` only. `auth logout --local` keeps its
 existing credential-removal meaning.
 
 Supply a compatible Goblin runtime with `--runtime-dir` or `ADAPT_LOCAL_RUNTIME`.
-The directory must contain `goblind` with `--ready-file` support and a native
+The directory must contain `goblind` with `--ready-file` and `--unix-socket` support and a native
 `goblin-worker` with matching embedded firmware. The macOS worker must be signed
 with its hypervisor entitlement. Automatic bundle installation is not included
 yet. Adapt discovers a running manager before requiring the bundle path again.
@@ -248,8 +248,10 @@ State, image cache, the local token, discovery metadata, and `goblind.log` live 
 `ADAPT_CONFIG_DIR/local` (using the usual config-directory default). Override this
 with `--local-state-dir` or `ADAPT_LOCAL_STATE_DIR`; the directory must be private
 and owned by the current user. The manager runs independently of the terminal,
-binds an ephemeral loopback port, and uses a separate token. Adapt bypasses HTTP
-proxies for its local management requests. Concurrent commands reuse one manager.
+listens on a private `goblind.sock` Unix socket inside that directory, and uses a
+separate token. Adapt validates the socket path, ownership, and permissions before
+sending credentials; HTTP and WebSocket requests both use the socket and bypass
+proxies. Stale TCP discovery records are rejected. Concurrent commands reuse one manager.
 
 Local shells accept `--image`, `--cpu`, `--memory`, `--disk`, and repeated `--env`.
 Defaults are `ubuntu:24.04`, one CPU, 1024 MiB memory, and a 2048 MiB writable disk.
@@ -261,6 +263,9 @@ labels, variable sets, image startup commands, TTL, and idempotency keys are
 rejected before starting the runtime.
 
 Normal exit, Ctrl-], stream failure, and handled interruption trigger VM deletion.
+Ctrl-] remains available when the guest stops reading input. Interactive input
+queues up to 32 KiB locally; additional input is discarded with a warning until
+the guest resumes reading. Piped input is backpressured without discarding bytes.
 The command has a 24-hour execution limit. Local sandboxes have no daemon-enforced
 TTL in this first version, so a killed CLI or failed cleanup can leave a VM behind;
 the diagnostic reports its UUID and state directory for local Goblin API cleanup.

@@ -291,10 +291,8 @@ pub struct Attachment {
     pub credit: Option<usize>,
 }
 
-pub async fn terminal(
-    socket: tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+pub async fn terminal<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    socket: tokio_tungstenite::WebSocketStream<S>,
     attachment: Attachment,
 ) -> Result<u8> {
     let Attachment {
@@ -318,11 +316,41 @@ pub async fn terminal(
     let mut stdin = tokio::io::stdin();
     let mut buffer = [0u8; 4096];
     let mut input_open = input;
+    let mut remote_input_open = true;
+    let mut pending = VecDeque::new();
+    let mut eof_pending = false;
+    let mut overflow_warned = false;
+    const MAX_PENDING_INPUT: usize = 32768;
     let mut last_sequence = after;
     let mut last_size = crossterm::terminal::size().unwrap_or((80, 24));
     let mut resize = tokio::time::interval(Duration::from_millis(250));
     loop {
-        let capacity = credit.unwrap_or(buffer.len()).min(buffer.len());
+        while !pending.is_empty() && credit.is_none_or(|available| available > 0) {
+            let count = pending
+                .len()
+                .min(credit.unwrap_or(buffer.len()))
+                .min(buffer.len());
+            let bytes: Vec<u8> = pending.drain(..count).collect();
+            if let Some(available) = credit.as_mut() {
+                *available -= count;
+            }
+            writer.send(Message::Binary(bytes.into())).await?;
+        }
+        if eof_pending && pending.is_empty() {
+            eof_pending = false;
+            writer
+                .send(Message::Text(
+                    json!({"kind":"stdin_eof"}).to_string().into(),
+                ))
+                .await?;
+        }
+        // TTY input must stay readable even with no remote credit so Ctrl-]
+        // can detach. Queue at most one window and report discarded overflow.
+        let capacity = if tty {
+            buffer.len()
+        } else {
+            credit.unwrap_or(buffer.len()).min(buffer.len())
+        };
         tokio::select! {
             message = reader.next() => {
                 let Some(message) = message else { bail!("Attachment disconnected. {}", resume.replace("{sequence}", &last_sequence.to_string())); };
@@ -334,17 +362,18 @@ pub async fn terminal(
                             match kind {
                                 "attached" => {
                                     *available = data["session"]["stdin_credit"].as_u64().context("Missing stdin credit")?.try_into()?;
-                                    input_open &= data["session"]["stdin_closed"] != true;
+                                    remote_input_open &= data["session"]["stdin_closed"] != true;
                                 },
                                 "started" => *available = 32768,
                                 "stdin_consumed" => {
                                     let bytes: usize = data["bytes"].as_u64().context("Missing stdin consumption")?.try_into()?;
                                     *available = available.checked_add(bytes).context("Invalid stdin credit")?;
                                 },
-                                "stdin_closed" => input_open = false,
+                                "stdin_closed" => remote_input_open = false,
                                 _ => {},
                             }
                             if *available > 32768 { bail!("Invalid stdin credit window"); }
+                            if !remote_input_open { pending.clear(); eof_pending = false; }
                         }
                         match kind {
                             "error" | "rejected" => bail!("Execution failed: {}", output::safe(data["message"].as_str().unwrap_or("runtime rejected the stream"))),
@@ -372,18 +401,24 @@ pub async fn terminal(
                     _ => {},
                 }
             },
-            count = stdin.read(&mut buffer[..capacity]), if input_open && capacity > 0 => {
+            count = stdin.read(&mut buffer[..capacity]), if input_open && (tty || remote_input_open) && capacity > 0 => {
                 let count = count?;
                 if count == 0 {
                     input_open = false;
-                    writer.send(Message::Text(json!({"kind":"stdin_eof"}).to_string().into())).await?;
+                    eof_pending = remote_input_open;
                 } else {
                     if tty && buffer[..count].contains(&0x1d) {
                         writer.close().await?;
                         return Ok(0);
                     }
-                    if let Some(available) = credit.as_mut() { *available -= count; }
-                    writer.send(Message::Binary(buffer[..count].to_vec().into())).await?;
+                    if remote_input_open {
+                        let queued = count.min(MAX_PENDING_INPUT - pending.len());
+                        pending.extend(&buffer[..queued]);
+                        if queued < count && !overflow_warned {
+                            eprintln!("Input buffer full; additional input is discarded until the sandbox reads again. Ctrl-] still detaches.\r");
+                            overflow_warned = true;
+                        }
+                    }
                 }
             },
             _ = resize.tick(), if tty => {

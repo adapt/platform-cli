@@ -3,11 +3,12 @@
 import argparse
 import json
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
+from socketserver import UnixStreamServer
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-for flag in ("state-dir", "listen", "worker", "token-file", "ready-file"):
+for flag in ("state-dir", "unix-socket", "worker", "token-file", "ready-file"):
     parser.add_argument("--" + flag, required=True)
 args = parser.parse_args()
 assert "ADAPT_TOKEN" not in os.environ
@@ -45,12 +46,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-host, port = args.listen.rsplit(":", 1)
-server = HTTPServer((host, int(port)), Handler)
+# UnixStreamServer avoids HTTPServer's blocking reverse-DNS lookup on startup.
+server = UnixStreamServer(args.unix_socket, Handler)
+Path(args.unix_socket).chmod(0o600)
+print("fixture Unix socket bound", flush=True)
 ready = Path(args.ready_file)
 temporary = ready.with_suffix(".tmp")
 temporary.write_text(json.dumps({
-    "version": 1, "address": "%s:%s" % server.server_address,
+    "version": 1, "socket_path": args.unix_socket,
     "pid": os.getpid(), "instance_id": instance, "runtime_version": "fixture",
 }))
 temporary.chmod(0o600)

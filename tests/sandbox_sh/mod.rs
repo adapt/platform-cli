@@ -296,7 +296,7 @@ fn interactive_preflight_rejects_missing_terminal_and_json_before_creation() {
 }
 
 #[cfg(unix)]
-mod unix {
+pub(crate) mod unix {
     use super::*;
     use std::{
         fs::File,
@@ -309,14 +309,14 @@ mod unix {
         time::{Duration, Instant},
     };
 
-    struct Terminal {
-        master: File,
+    pub(crate) struct Terminal {
+        pub(crate) master: File,
         slave: File,
         original: libc::termios,
     }
 
     impl Terminal {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let mut master = -1;
             let mut slave = -1;
             let mut size = libc::winsize {
@@ -363,7 +363,7 @@ mod unix {
             }
         }
 
-        fn spawn(&self, mut cmd: Command) -> Child {
+        pub(crate) fn spawn(&self, mut cmd: Command) -> Child {
             cmd.stdin(self.slave.try_clone().unwrap())
                 .stdout(self.slave.try_clone().unwrap())
                 .stderr(Stdio::piped());
@@ -380,6 +380,10 @@ mod unix {
         }
 
         fn cleanup(&self) -> Exchange {
+            self.restored_then(deleted())
+        }
+
+        pub(crate) fn restored_then(&self, next: Exchange) -> Exchange {
             let slave = self.slave.try_clone().unwrap();
             let original = self.original;
             Box::new(move |socket| {
@@ -397,12 +401,12 @@ mod unix {
                     assert_eq!(current.c_iflag, original.c_iflag);
                     assert_eq!(current.c_oflag, original.c_oflag);
                 }
-                deleted()(socket)
+                next(socket)
             })
         }
     }
 
-    fn wait(mut child: Child, terminal: Option<&Terminal>) -> (i32, String) {
+    pub(crate) fn wait(mut child: Child, terminal: Option<&Terminal>) -> (i32, String) {
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut master = terminal.map(|t| t.master.try_clone().unwrap());
         let status = loop {

@@ -1,14 +1,19 @@
 use super::Sandbox;
+#[cfg(unix)]
+use crate::stream;
 use crate::{
     api,
     cli::{ExecArgs, SandboxCreate},
-    output, stream,
+    output,
 };
 use anyhow::{Context, Result, bail};
-use reqwest::{Client, Method, StatusCode, header::HeaderMap};
+#[cfg(unix)]
+use reqwest::header::HeaderMap;
+use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
 use tokio::time::{Instant, sleep};
+#[cfg(unix)]
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use url::Url;
 use uuid::Uuid;
@@ -16,7 +21,10 @@ use uuid::Uuid;
 pub struct LocalBackend {
     client: Client,
     origin: Url,
+    #[cfg(unix)]
     headers: HeaderMap,
+    #[cfg(unix)]
+    socket_path: PathBuf,
     pub state_dir: PathBuf,
     timeout: Duration,
 }
@@ -40,21 +48,28 @@ pub fn validate(args: &SandboxCreate) -> Result<()> {
 
 impl LocalBackend {
     #[cfg(unix)]
-    pub fn new(origin: Url, token: &str, state_dir: PathBuf, timeout: Duration) -> Result<Self> {
+    pub fn new(
+        socket_path: PathBuf,
+        token: &str,
+        state_dir: PathBuf,
+        timeout: Duration,
+    ) -> Result<Self> {
         let mut headers = HeaderMap::new();
         let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))?;
         value.set_sensitive(true);
         headers.insert(reqwest::header::AUTHORIZATION, value);
         let client = Client::builder()
             .no_proxy()
+            .unix_socket(socket_path.clone())
             .redirect(reqwest::redirect::Policy::none())
             .default_headers(headers.clone())
             .timeout(timeout)
             .build()?;
         Ok(Self {
             client,
-            origin,
+            origin: "http://localhost/".parse()?,
             headers,
+            socket_path,
             state_dir,
             timeout,
         })
@@ -144,6 +159,7 @@ impl LocalBackend {
         .context("Timed out waiting for the local sandbox")?
     }
 
+    #[cfg(unix)]
     pub async fn execute(
         &self,
         sandbox: &Sandbox,
@@ -174,10 +190,12 @@ impl LocalBackend {
             .map_err(|_| anyhow::anyhow!("Invalid local stream URL"))?;
         let mut request = url.as_str().into_client_request()?;
         request.headers_mut().extend(self.headers.clone());
-        let (socket, _) =
-            tokio::time::timeout(self.timeout, tokio_tungstenite::connect_async(request))
-                .await
-                .context("Timed out attaching to local execution")??;
+        let (socket, _) = tokio::time::timeout(self.timeout, async {
+            let stream = tokio::net::UnixStream::connect(&self.socket_path).await?;
+            tokio_tungstenite::client_async(request, stream).await
+        })
+        .await
+        .context("Timed out attaching to local execution")??;
         stream::terminal(
             socket,
             stream::Attachment {
@@ -190,6 +208,11 @@ impl LocalBackend {
             },
         )
         .await
+    }
+
+    #[cfg(not(unix))]
+    pub async fn execute(&self, _: &Sandbox, _: ExecArgs, _: bool) -> Result<u8> {
+        bail!("Local sandboxes require a Unix host")
     }
 
     pub async fn delete(&self, id: Uuid) -> Result<()> {

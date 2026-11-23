@@ -191,7 +191,7 @@ adapt sandbox sh --image ubuntu:24.04 --cpu 2 --memory 2048 --env EDITOR=vim
 adapt sandbox sh --image-id IMAGE_ID --variable-set VARIABLE_SET_ID
 ```
 
-`sandbox sh` accepts every `sandbox create` option, including `--data`.
+Cloud `sandbox sh` accepts every `sandbox create` option, including `--data`.
 It always waits for the sandbox to run, even without `--wait`.
 Without a command, it requires a terminal and opens an interactive login shell.
 It selects the shell from the guest's `$SHELL` or passwd entry.
@@ -222,6 +222,51 @@ The default sandbox expiry is one hour.
 The `--ttl` option sets expiry in seconds.
 The `--no-expiry` option disables automatic expiry.
 Shells have a maximum execution timeout of 24 hours.
+
+### Local temporary sandboxes
+
+```sh
+adapt sandbox sh --local --runtime-dir /path/to/goblin-release/bin --image ubuntu:24.04 -- uname -m
+adapt sandbox sh --local --env EDITOR=vim
+printf 'hello\n' | adapt sandbox sh --local -- cat
+adapt sandbox sh --cloud -- uname -m
+```
+
+`--local` runs a temporary VM on Apple Silicon macOS or x86_64 Linux with KVM.
+It does not read cloud profiles or use Platform tokens. `--local` and `--cloud`
+are mutually exclusive; omitting both preserves the cloud default. These target
+flags currently apply to `sandbox sh` only. `auth logout --local` keeps its
+existing credential-removal meaning.
+
+Supply a compatible Goblin runtime with `--runtime-dir` or `ADAPT_LOCAL_RUNTIME`.
+The directory must contain `goblind` with `--ready-file` support and a native
+`goblin-worker` with matching embedded firmware. The macOS worker must be signed
+with its hypervisor entitlement. Automatic bundle installation is not included
+yet. Adapt discovers a running manager before requiring the bundle path again.
+
+State, image cache, the local token, discovery metadata, and `goblind.log` live in
+`ADAPT_CONFIG_DIR/local` (using the usual config-directory default). Override this
+with `--local-state-dir` or `ADAPT_LOCAL_STATE_DIR`; the directory must be private
+and owned by the current user. The manager runs independently of the terminal,
+binds an ephemeral loopback port, and uses a separate token. Adapt bypasses HTTP
+proxies for its local management requests. Concurrent commands reuse one manager.
+
+Local shells accept `--image`, `--cpu`, `--memory`, `--disk`, and repeated `--env`.
+Defaults are `ubuntu:24.04`, one CPU, 1024 MiB memory, and a 2048 MiB writable disk.
+The guest can reach public internet destinations, with private/loopback egress
+blocked by Goblin's public policy. No host directories are mounted.
+`--wait` is redundant because a shell always waits; `--no-expiry` is accepted.
+Local `--env` values apply to the shell or command. `--data`, cloud image IDs,
+labels, variable sets, image startup commands, TTL, and idempotency keys are
+rejected before starting the runtime.
+
+Normal exit, Ctrl-], stream failure, and handled interruption trigger VM deletion.
+The command has a 24-hour execution limit. Local sandboxes have no daemon-enforced
+TTL in this first version, so a killed CLI or failed cleanup can leave a VM behind;
+the diagnostic reports its UUID and state directory for local Goblin API cleanup.
+Persistent local create/exec/files, stop/start, mounts, and local/cloud moves are
+not exposed by this change. Local runtime logs and session output do not have
+Platform's retained, redacted log service.
 
 ### Sandbox options
 

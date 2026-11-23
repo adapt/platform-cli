@@ -270,7 +270,7 @@ pub enum SandboxCommand {
     Create(SandboxCreate),
     /// Run a login shell or command in a temporary sandbox, then delete it
     #[command(
-        after_help = "Accepts all sandbox create options. Always waits for the sandbox to run.\nWithout COMMAND, opens an interactive login shell (requires a terminal).\nWith COMMAND, forwards stdin and streams output. Returns the remote exit code.\nThe sandbox is deleted when the shell or command exits."
+        after_help = "Cloud sandboxes accept all sandbox create options; local options are limited. Always waits for the sandbox to run.\nWithout COMMAND, opens an interactive login shell (requires a terminal).\nWith COMMAND, forwards stdin and streams output. Returns the remote exit code.\nThe sandbox is deleted when the shell or command exits."
     )]
     Sh(SandboxShell),
     Start {
@@ -311,6 +311,18 @@ pub struct SandboxList {
 
 #[derive(Args)]
 pub struct SandboxShell {
+    /// Run a temporary sandbox on this computer (requires a Goblin runtime bundle)
+    #[arg(long = "local", conflicts_with = "cloud_target")]
+    pub local_target: bool,
+    /// Run on Adapt Platform (the default)
+    #[arg(long = "cloud")]
+    pub cloud_target: bool,
+    /// Directory containing goblind and goblin-worker
+    #[arg(long, env = "ADAPT_LOCAL_RUNTIME")]
+    pub runtime_dir: Option<PathBuf>,
+    /// Private local runtime state (defaults to ADAPT_CONFIG_DIR/local)
+    #[arg(long, env = "ADAPT_LOCAL_STATE_DIR")]
+    pub local_state_dir: Option<PathBuf>,
     #[command(flatten)]
     pub create: SandboxCreate,
     /// Command and literal arguments to run instead of an interactive login shell

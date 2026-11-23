@@ -252,6 +252,8 @@ pub fn command_with_timeout(dir: &Path, url: &str, timeout: u64) -> Command {
         "ADAPT_API_URL",
         "ADAPT_ORG_ID",
         "ADAPT_CONFIG_DIR",
+        "ADAPT_LOCAL_RUNTIME",
+        "ADAPT_LOCAL_STATE_DIR",
     ] {
         cmd.env_remove(name);
     }

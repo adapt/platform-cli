@@ -5,6 +5,11 @@ use support::*;
 
 mod endpoint_request;
 mod image_list;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+))]
+mod local_shell;
 mod mcp_tools;
 mod models;
 mod resource_prefixes;

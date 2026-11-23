@@ -270,7 +270,8 @@ fn reports_cleanup_failure_and_preserves_command_failure_status() {
             .unwrap();
         assert_eq!(out.status.code(), Some(if code == 0 { 1 } else { 7 }));
         assert!(
-            String::from_utf8_lossy(&out.stderr).contains(&format!("adapt sandbox delete {ID}"))
+            String::from_utf8_lossy(&out.stderr)
+                .contains(&format!("adapt --cloud sandbox delete {ID}"))
         );
         server.finish();
     }

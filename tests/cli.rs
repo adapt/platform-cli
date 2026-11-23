@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use support::*;
 
+mod backend;
 mod endpoint_request;
 mod image_list;
 #[cfg(any(

@@ -223,55 +223,85 @@ The `--ttl` option sets expiry in seconds.
 The `--no-expiry` option disables automatic expiry.
 Shells have a maximum execution timeout of 24 hours.
 
-### Local temporary sandboxes
+### Local sandboxes
 
 ```sh
-adapt sandbox sh --local --runtime-dir /path/to/goblin-release/bin --image ubuntu:24.04 -- uname -m
-adapt sandbox sh --local --env EDITOR=vim
-printf 'hello\n' | adapt sandbox sh --local -- cat
-adapt sandbox sh --cloud -- uname -m
+export ADAPT_LOCAL_RUNTIME=/path/to/goblin-release/bin
+adapt sandbox sh --local --image ubuntu:24.04 -- uname -m
+adapt --local sandbox create --image ubuntu:24.04 --env EDITOR=vim --wait
+adapt --local sandbox list
+adapt --local sandbox get SANDBOX_ID
+adapt --local exec SANDBOX_ID -- /bin/sh -c 'echo "$EDITOR"'
+adapt --local exec SANDBOX_ID -it -- /bin/sh
+adapt --local sandbox stop SANDBOX_ID --wait
+adapt --local sandbox delete SANDBOX_ID
 ```
 
-`--local` runs a temporary VM on Apple Silicon macOS or x86_64 Linux with KVM.
-It does not read cloud profiles or use Platform tokens. `--local` and `--cloud`
-are mutually exclusive; omitting both preserves the cloud default. These target
-flags currently apply to `sandbox sh` only. `auth logout --local` keeps its
-existing credential-removal meaning.
+`--local` selects the local backend on Apple Silicon macOS or x86_64 Linux with
+KVM. `--cloud` explicitly selects Platform, which remains the default. These are
+global flags: they work before or after a subcommand and cannot be combined.
+Runtime environment variables configure the local runtime without selecting it.
+Local resource commands do not read cloud profiles or send Platform tokens.
+Unsupported operations return an error before launching a runtime; they never
+fall back to the cloud. `auth logout --local` retains its credential-removal
+meaning, and `skill` commands remain offline.
+
+| Operation | Local support |
+| --- | --- |
+| `sandbox create`, `get`, `list`, `stop`, `delete`, `wait`, `sh` | Supported |
+| `exec`, including stdin and PTY | Supported; sandbox remains after execution |
+| `sandbox start`, `usage` | Not supported yet |
+| `exec --detach`, `execs`, `files` | Not supported yet |
+| `images`, `volumes`, `endpoints`, other Platform services | Not supported yet |
+
+Local resource IDs must be full UUIDs. `sandbox list` returns all UUID-addressed
+VMs in the selected manager; `--query` filters UUID prefixes, and `--all` is
+accepted. Named VMs created outside Adapt are omitted. `--limit` and `--cursor`
+are not supported locally. Local responses expose common `id`, `status`, `cpu`,
+and `memoryMiB` fields where available, alongside Goblin's diagnostics. Goblin's
+`ready` and `busy` states both map to `running`. Local waits accept `running`,
+`stopped`, `deleted`, `failed`, or `completed`, and respect `--wait-timeout`.
+Stopping a VM ends its processes; restarting it is not implemented yet.
 
 Supply a compatible Goblin runtime with `--runtime-dir` or `ADAPT_LOCAL_RUNTIME`.
-The directory must contain `goblind` with `--ready-file` and `--unix-socket` support and a native
-`goblin-worker` with matching embedded firmware. The macOS worker must be signed
-with its hypervisor entitlement. Automatic bundle installation is not included
-yet. Adapt discovers a running manager before requiring the bundle path again.
+The directory must contain `goblind` with `--ready-file` and `--unix-socket`
+support and a native `goblin-worker` with matching embedded firmware. The macOS
+worker must be signed with its hypervisor entitlement. Automatic bundle
+installation is not included yet. Adapt discovers a running manager before
+requiring the bundle path again.
 
-State, image cache, the local token, discovery metadata, and `goblind.log` live in
-`ADAPT_CONFIG_DIR/local` (using the usual config-directory default). Override this
-with `--local-state-dir` or `ADAPT_LOCAL_STATE_DIR`; the directory must be private
-and owned by the current user. The manager runs independently of the terminal,
-listens on a private `goblind.sock` Unix socket inside that directory, and uses a
-separate token. Adapt validates the socket path, ownership, and permissions before
-sending credentials; HTTP and WebSocket requests both use the socket and bypass
-proxies. Stale TCP discovery records are rejected. Concurrent commands reuse one manager.
+State, image cache, the local token, discovery metadata, sandbox environment
+files, and `goblind.log` live in `ADAPT_CONFIG_DIR/local` (using the usual config
+directory default). Override this with `--local-state-dir` or
+`ADAPT_LOCAL_STATE_DIR`; use the same directory on subsequent commands. It must
+be private and owned by the current user. The manager runs independently of the
+terminal, listens on a private `goblind.sock` Unix socket, and uses a separate
+token. Adapt validates socket ownership and permissions before sending
+credentials; HTTP and WebSocket requests bypass proxies. Stale TCP discovery
+records are rejected. Concurrent commands reuse one manager.
 
-Local shells accept `--image`, `--cpu`, `--memory`, `--disk`, and repeated `--env`.
-Defaults are `ubuntu:24.04`, one CPU, 1024 MiB memory, and a 2048 MiB writable disk.
-The guest can reach public internet destinations, with private/loopback egress
-blocked by Goblin's public policy. No host directories are mounted.
-`--wait` is redundant because a shell always waits; `--no-expiry` is accepted.
-Local `--env` values apply to the shell or command. `--data`, cloud image IDs,
-labels, variable sets, image startup commands, TTL, and idempotency keys are
-rejected before starting the runtime.
+Local creation accepts `--image`, `--cpu`, `--memory`, `--disk`, and repeated
+`--env`. Defaults are `ubuntu:24.04`, one CPU, 1024 MiB memory, and a 2048 MiB
+writable disk. Environment values are stored in private files and applied by
+later `adapt exec` commands; execution `--env` flags override them. They are not
+image startup configuration. The guest can reach public internet destinations,
+with private/loopback egress blocked by Goblin's public policy. Host mounts and
+local/cloud moves are not implemented.
 
-Normal exit, Ctrl-], stream failure, and handled interruption trigger VM deletion.
+`--wait` on create or stop waits for the requested state. `sandbox sh` always
+waits, streams stdin/output, and deletes its VM on exit, Ctrl-], stream failure,
+or handled interruption. Persistent `sandbox create` leaves the VM running until
+explicitly stopped or deleted. Local sandboxes have no daemon-enforced expiry;
+`--no-expiry` is accepted. `--data`, cloud image IDs, labels, variable sets, image
+startup commands, TTL, and idempotency keys are rejected before runtime startup.
+
 Ctrl-] remains available when the guest stops reading input. Interactive input
-queues up to 32 KiB locally; additional input is discarded with a warning until
-the guest resumes reading. Piped input is backpressured without discarding bytes.
-The command has a 24-hour execution limit. Local sandboxes have no daemon-enforced
-TTL in this first version, so a killed CLI or failed cleanup can leave a VM behind;
-the diagnostic reports its UUID and state directory for local Goblin API cleanup.
-Persistent local create/exec/files, stop/start, mounts, and local/cloud moves are
-not exposed by this change. Local runtime logs and session output do not have
-Platform's retained, redacted log service.
+queues up to 32 KiB locally; further input is discarded with a warning until the
+guest resumes reading. Piped input is backpressured without discarding bytes.
+Temporary shells have a 24-hour execution limit. An uncatchable CLI kill or failed
+cleanup can leave a VM behind; use `adapt --local sandbox list` and `delete` to
+inspect and remove it. Local logs and session output do not have Platform's
+retained, redacted log service.
 
 ### Sandbox options
 
@@ -473,7 +503,7 @@ adapt models discover PROVIDER_ID
 
 ## Resource IDs
 
-These resources accept full UUIDs or unique ID prefixes:
+On the cloud backend, these resources accept full UUIDs or unique ID prefixes:
 
 - Sandboxes and executions.
 - Images and registry credentials.
@@ -680,6 +710,9 @@ It does not retry this request automatically.
 
 | Setting | Option | Environment variable |
 | --- | --- | --- |
+| Backend; default: cloud | `--local` / `--cloud` | None |
+| Local runtime bundle | `--runtime-dir` | `ADAPT_LOCAL_RUNTIME` |
+| Local state directory | `--local-state-dir` | `ADAPT_LOCAL_STATE_DIR` |
 | API origin | `--api-url` | `ADAPT_API_URL` |
 | Profile; default: `default` | `--profile` | `ADAPT_PROFILE` |
 | Organization for this request | `--org` | `ADAPT_ORG_ID` |

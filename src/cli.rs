@@ -11,6 +11,19 @@ use uuid::Uuid;
     after_help = "Start here: adapt auth login\nUse --json for scripting. Run any command with --help for details.\nCore resource IDs accept full UUIDs or unambiguous hexadecimal prefixes. Auth and organization IDs require full UUIDs."
 )]
 pub struct Cli {
+    /// Use the local backend (auth logout: remove only the saved credential)
+    #[arg(long = "local", global = true, conflicts_with = "cloud_target")]
+    pub local_target: bool,
+    /// Run on Adapt Platform (the default)
+    #[arg(long = "cloud", global = true)]
+    pub cloud_target: bool,
+    /// Directory containing goblind and goblin-worker
+    #[arg(long, global = true, env = "ADAPT_LOCAL_RUNTIME")]
+    pub runtime_dir: Option<PathBuf>,
+    /// Private local runtime state (defaults to ADAPT_CONFIG_DIR/local)
+    #[arg(long, global = true, env = "ADAPT_LOCAL_STATE_DIR")]
+    pub local_state_dir: Option<PathBuf>,
+
     /// Saved connection profile
     #[arg(long, global = true, env = "ADAPT_PROFILE", default_value = "default")]
     pub profile: String,
@@ -143,11 +156,10 @@ pub enum AuthCommand {
         token_stdin: bool,
     },
     /// Revoke the saved CLI session and remove its local credential
-    Logout {
-        /// Remove only the local credential (for an unreachable server)
-        #[arg(long)]
-        local: bool,
-    },
+    #[command(
+        after_help = "Use --local to remove only the saved credential when the server is unreachable."
+    )]
+    Logout,
     /// Verify authentication without printing credentials
     Status,
 }
@@ -311,18 +323,6 @@ pub struct SandboxList {
 
 #[derive(Args)]
 pub struct SandboxShell {
-    /// Run a temporary sandbox on this computer (requires a Goblin runtime bundle)
-    #[arg(long = "local", conflicts_with = "cloud_target")]
-    pub local_target: bool,
-    /// Run on Adapt Platform (the default)
-    #[arg(long = "cloud")]
-    pub cloud_target: bool,
-    /// Directory containing goblind and goblin-worker
-    #[arg(long, env = "ADAPT_LOCAL_RUNTIME")]
-    pub runtime_dir: Option<PathBuf>,
-    /// Private local runtime state (defaults to ADAPT_CONFIG_DIR/local)
-    #[arg(long, env = "ADAPT_LOCAL_STATE_DIR")]
-    pub local_state_dir: Option<PathBuf>,
     #[command(flatten)]
     pub create: SandboxCreate,
     /// Command and literal arguments to run instead of an interactive login shell

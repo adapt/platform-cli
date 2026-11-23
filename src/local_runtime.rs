@@ -1,13 +1,9 @@
 //! Per-user Goblin discovery and bootstrap. No Platform credentials are loaded here.
-use crate::backend::local::LocalBackend;
+use crate::backend::local::Goblin;
 use anyhow::{Result, bail};
 use std::{path::Path, time::Duration};
 
-pub async fn connect(
-    state: &Path,
-    runtime: Option<&Path>,
-    timeout: Duration,
-) -> Result<LocalBackend> {
+pub async fn connect(state: &Path, runtime: Option<&Path>, timeout: Duration) -> Result<Goblin> {
     if !cfg!(any(
         all(target_os = "macos", target_arch = "aarch64"),
         all(target_os = "linux", target_arch = "x86_64")
@@ -98,11 +94,7 @@ mod unix {
         Ok(bytes)
     }
 
-    async fn discover(
-        state: &Path,
-        token: &str,
-        timeout: Duration,
-    ) -> Result<Option<LocalBackend>> {
+    async fn discover(state: &Path, token: &str, timeout: Duration) -> Result<Option<Goblin>> {
         let path = state.join("ready.json");
         let bytes = match read(&path) {
             Ok(bytes) => bytes,
@@ -134,7 +126,7 @@ mod unix {
         {
             bail!("Local runtime socket must be private and user-owned");
         }
-        let probe = LocalBackend::new(
+        let probe = Goblin::new(
             ready.socket_path.clone(),
             token,
             state.to_owned(),
@@ -167,7 +159,7 @@ mod unix {
                 "Local runtime is incompatible or has no embedded image firmware; use a compatible Goblin bundle"
             );
         }
-        Ok(Some(LocalBackend::new(
+        Ok(Some(Goblin::new(
             ready.socket_path,
             token,
             state.to_owned(),
@@ -179,7 +171,7 @@ mod unix {
         state: &Path,
         runtime: Option<&Path>,
         timeout: Duration,
-    ) -> Result<LocalBackend> {
+    ) -> Result<Goblin> {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)

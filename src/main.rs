@@ -12,12 +12,22 @@ mod shell;
 mod skill;
 mod stream;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use cli::Cli;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // Clap checks conflicts within each command before propagating global
+    // arguments; also catch flags placed at different command levels.
+    if cli.local_target && cli.cloud_target {
+        Cli::command()
+            .error(
+                clap::error::ErrorKind::ArgumentConflict,
+                "--local cannot be used with --cloud",
+            )
+            .exit();
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -43,11 +53,16 @@ async fn run(cli: Cli) -> ExitCode {
             &cli.command,
             cli::Command::Endpoints(cli::EndpointCommand::Request(_))
         );
+        let local = cli.local_target;
         tokio::select! {
             result = commands::run(cli) => result,
             _ = tokio::signal::ctrl_c() => {
                 if remote_work {
-                    eprintln!("\nCancelled. Remote executions continue; use `adapt execs cancel ID` to stop one.");
+                    if local {
+                        eprintln!("\nCancelled. Local operations may continue; inspect with `adapt --local sandbox list` and use `adapt --local sandbox stop ID` to stop a VM.");
+                    } else {
+                        eprintln!("\nCancelled. Remote executions continue; use `adapt execs cancel ID` to stop one.");
+                    }
                 }
                 return ExitCode::from(130);
             }

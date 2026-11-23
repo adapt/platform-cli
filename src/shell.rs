@@ -1,12 +1,10 @@
 use crate::{
-    api::{Api, ApiError},
-    backend::{Sandbox, SandboxBackend},
+    backend::Backend,
     cli::{Creation, ExecArgs, SandboxShell},
-    commands::wait_for,
+    commands::resource_id,
     stream,
 };
 use anyhow::{Context, Result, bail};
-use reqwest::{Method, StatusCode};
 use uuid::Uuid;
 
 // Honor an explicitly configured SHELL, then the guest user's passwd entry.
@@ -34,16 +32,12 @@ pub fn validate(args: &SandboxShell, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn run(
-    backend: &SandboxBackend<'_>,
-    args: SandboxShell,
-    json_output: bool,
-) -> Result<u8> {
+pub async fn run(backend: &impl Backend, args: SandboxShell, json_output: bool) -> Result<u8> {
     validate(&args, json_output)?;
     let interactive = args.argv.is_empty();
     let mut shutdown = Shutdown::new()?;
 
-    let creation = backend.create(args.create);
+    let creation = backend.sandbox_create(args.create);
     tokio::pin!(creation);
     let (created, interrupted) = tokio::select! {
         biased;
@@ -56,7 +50,7 @@ pub async fn run(
         created = &mut creation => (created, None),
     };
     let sandbox = created?;
-    let id = sandbox.id;
+    let id = resource_id(&sandbox)?;
     eprintln!("Temporary sandbox: {id}");
     if interactive {
         eprintln!("Exiting the shell or pressing Ctrl-] deletes this sandbox.");
@@ -70,10 +64,10 @@ pub async fn run(
         tokio::select! {
             biased;
             code = shutdown.wait() => Ok(code),
-            result = session(backend, &sandbox, args.argv, json_output) => result,
+            result = session(backend, id, args.argv, json_output) => result,
         }
     };
-    let cleanup = backend.delete(id).await.with_context(|| {
+    let cleanup = backend.cleanup(id).await.with_context(|| {
         format!(
             "Could not delete temporary sandbox {id}; {}",
             backend.cleanup_hint(id)
@@ -91,17 +85,15 @@ pub async fn run(
 }
 
 async fn session(
-    backend: &SandboxBackend<'_>,
-    sandbox: &Sandbox,
+    backend: &impl Backend,
+    id: Uuid,
     argv: Vec<String>,
     json_output: bool,
 ) -> Result<u8> {
-    let id = sandbox.id;
     let interactive = argv.is_empty();
-    backend.wait(id).await?;
+    backend.sandbox_wait(id.into(), "running", 600).await?;
     backend
         .execute(
-            sandbox,
             ExecArgs {
                 sandbox: id.into(),
                 cwd: None,
@@ -122,37 +114,6 @@ async fn session(
             json_output,
         )
         .await
-}
-
-pub(crate) async fn cleanup_cloud(api: &Api, id: Uuid) -> Result<()> {
-    eprintln!("Deleting temporary sandbox {id}…");
-    let result: Result<()> = async {
-        let response = api
-            .json(
-                Method::DELETE,
-                &format!("/v1/sandboxes/{id}"),
-                None,
-                &[],
-                None,
-            )
-            .await?;
-        if response["status"] != 204 {
-            wait_for(api, "sandboxes", id, "deleted", 600).await?;
-        }
-        Ok(())
-    }
-    .await;
-    // Expiry or another client may already have removed the sandbox.
-    match result {
-        Err(error)
-            if error
-                .downcast_ref::<ApiError>()
-                .is_some_and(|e| e.status == StatusCode::NOT_FOUND) =>
-        {
-            Ok(())
-        }
-        result => result,
-    }
 }
 
 #[cfg(unix)]

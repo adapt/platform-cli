@@ -1,3 +1,4 @@
+mod backend;
 use crate::support::*;
 use serde_json::{Value, json};
 use std::{
@@ -273,8 +274,7 @@ fn local_preflight_rejects_unsupported_options_without_starting_a_runtime() {
             .unwrap();
         assert_eq!(output.status.code(), Some(1));
         assert!(
-            String::from_utf8_lossy(&output.stderr)
-                .contains("not supported by local temporary sandboxes")
+            String::from_utf8_lossy(&output.stderr).contains("not supported by the local backend")
         );
         assert!(!dir.path().join("bootstrap.lock").exists());
     }

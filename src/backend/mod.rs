@@ -7,11 +7,13 @@ use crate::{
     commands, shell,
 };
 use anyhow::Result;
+#[cfg(unix)]
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
 pub struct Sandbox {
     pub id: Uuid,
+    #[cfg(unix)]
     pub env: BTreeMap<String, String>,
 }
 
@@ -25,6 +27,7 @@ impl SandboxBackend<'_> {
         match self {
             Self::Cloud(api) => Ok(Sandbox {
                 id: commands::resource_id(&commands::create_sandbox(api, args).await?)?,
+                #[cfg(unix)]
                 env: BTreeMap::new(),
             }),
             Self::Local(local) => local.create(args).await,

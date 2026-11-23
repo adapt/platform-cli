@@ -117,11 +117,11 @@ after this workflow reaches `main` and its checks pass.
 ## Pinning the local runtime
 
 `runtime-lock.json` is compiled into every CLI executable. It contains one exact
-Goblin revision, its compatibility metadata, and archive/manifest hashes for both
+Goblin revision and archive/manifest hashes for both
 supported runtime targets. There is no runtime `latest` lookup. Update it with:
 
 ```sh
-python3 scripts/pin_runtime.py GOBLIN_REVISION
+cargo xtask pin-runtime GOBLIN_REVISION
 ```
 
 The command reads the public immutable lock and verifies both archives before

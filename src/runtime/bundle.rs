@@ -20,6 +20,7 @@ struct Manifest {
     revision: String,
     dirty: bool,
     target: String,
+    // Existing Goblin bundle metadata; local installation does not gate on it.
     runtime_abi: u32,
     guest_protocol: u32,
     management_protocol: u32,
@@ -72,9 +73,6 @@ fn manifest(bytes: &[u8], pin: &Pin, target: &str, artifact: &Artifact) -> Resul
         || m.revision != pin.revision
         || m.release != pin.revision
         || m.target != target
-        || m.runtime_abi != pin.runtime_abi
-        || m.guest_protocol != pin.guest_protocol
-        || m.management_protocol != 1
         || m.files.keys().cloned().collect::<BTreeSet<_>>() != names(target)
     {
         bail!("Local runtime bundle identity or contents do not match the pinned release");
@@ -248,8 +246,8 @@ pub(super) fn fixture(
         revision: pin.revision.clone(),
         dirty: false,
         target: target.into(),
-        runtime_abi: pin.runtime_abi,
-        guest_protocol: pin.guest_protocol,
+        runtime_abi: 7,
+        guest_protocol: 10,
         management_protocol: 1,
         files,
     };

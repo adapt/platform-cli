@@ -4,9 +4,6 @@ fn pin() -> Pin {
     Pin {
         format: 1,
         revision: "a".repeat(40),
-        api_version: 1,
-        runtime_abi: 7,
-        guest_protocol: 10,
         targets: ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
             .into_iter()
             .map(|target| {
@@ -36,7 +33,7 @@ fn pins_require_exact_targets_hashes_and_supported_format() {
     bad.targets.values_mut().next().unwrap().size = MAX_ARCHIVE + 1;
     assert!(bad.validate().is_err());
     let mut bad = pin();
-    bad.api_version = 2;
+    bad.format = 2;
     assert!(bad.validate().is_err());
     let mut bad = pin();
     bad.targets.values_mut().next().unwrap().manifest_sha256 = "B".repeat(64);
@@ -118,6 +115,9 @@ mod unix {
                         }
                         Err(e) => panic!("{e}"),
                     };
+                    // macOS inherits O_NONBLOCK from the listener. These test
+                    // connections use blocking reads with a deadline on every OS.
+                    socket.set_nonblocking(false).unwrap();
                     socket
                         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                         .unwrap();

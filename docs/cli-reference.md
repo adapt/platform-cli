@@ -292,8 +292,9 @@ State, image cache, the local token, discovery metadata, sandbox environment
 files, and `goblind.log` live in `ADAPT_CONFIG_DIR/local` (using the usual config
 directory default). Override this with `--local-state-dir` or
 `ADAPT_LOCAL_STATE_DIR`; use the same directory on subsequent commands. It must
-be private and owned by the current user. The manager runs independently of the
-terminal, listens on a private `goblind.sock` Unix socket, and uses a separate
+be private and owned by the current user. Keep the path short: Goblin's per-VM
+Unix sockets must fit the host's socket path limit. The manager runs independently
+of the terminal, listens on a private `goblind.sock` Unix socket, and uses a separate
 token. Adapt validates socket ownership and permissions before sending
 credentials; HTTP and WebSocket requests bypass proxies. Stale TCP discovery
 records are rejected. Concurrent commands reuse one manager.

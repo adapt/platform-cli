@@ -1,1 +1,16 @@
-null
+{
+  "format": 1,
+  "revision": "4125721e6a9697f2ff16fb4a2bc263a6e80821bb",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "sha256": "6f1bd5d2338da77d5a8a8d82c2f38bb75c7a33fc0f7ec09ab2fdfc2ecf05b614",
+      "manifest_sha256": "4e9a3748aa002161d59c1542cfef17d81fc64f9c3cd6694de75f52bfb58e8849",
+      "size": 16989503
+    },
+    "x86_64-unknown-linux-gnu": {
+      "sha256": "4deb688d8a121fd8ca7675c6e64acc870299acf0a2422fbdf7e38c132d85f836",
+      "manifest_sha256": "ba77de4a7fc08bd4bce9c318153cf2ca23bb2612ecbb4e681381a9ad92b84b82",
+      "size": 18749494
+    }
+  }
+}

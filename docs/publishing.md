@@ -129,12 +129,12 @@ atomically changing the source pin. Review the resulting diff and run CI before
 releasing the CLI. `--base-url` supports fetching a pin from another trusted HTTPS
 mirror during development; runtime downloads still use the production endpoint.
 
-The first rollout is ordered: deploy Platform's `/runtime/goblin` route, merge
-Goblin's runtime publisher, configure its signing/OIDC environment, publish and
-qualify both runtime bundles, then fill this CLI's pin and merge the CLI change.
-The initial development lock is `null` until real artifacts exist. Unit tests and
-manual `--runtime-dir` operation support that state; both publication jobs reject
-it, so a CLI with an unconfigured managed runtime cannot be released.
+Goblin must publish both runtime bundles through Platform's `/runtime/goblin`
+route before updating the CLI pin. Publication requires Linux VM checks and Mac
+signing/notarization; Mac VM tests are separate and do not block publication.
+Development builds may use a `null` lock. Unit tests and manual `--runtime-dir`
+operation support that state; both publication jobs reject it, so a CLI with an
+unconfigured managed runtime cannot be released.
 
 Goblin owns Developer ID signing and notarization of the macOS runtime. This
 change does not add Developer ID signing to the `adapt` executable. Runtime

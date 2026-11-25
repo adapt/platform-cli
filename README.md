@@ -1,7 +1,7 @@
 # Adapt Platform CLI
 
 `adapt` is the command-line client for [Adapt Platform](https://platform.adapt.com).
-Use it to manage agent infrastructure like sandboxes, MCP connections, and more.
+It manages sandboxes, runs commands, transfers files, and calls connected tools.
 
 ## Install
 
@@ -11,8 +11,9 @@ On macOS or Linux, run:
 curl -fsSL https://platform.adapt.com/install.sh | sh
 ```
 
-The installer verifies the SHA-256 checksum and places `adapt` in `~/.local/bin`.
-Add `~/.local/bin` to your `PATH` and restart your shell.
+The installer verifies the SHA-256 checksum and puts `adapt` in `~/.local/bin`.
+Add `~/.local/bin` to your `PATH`.
+Restart your shell.
 
 To update the CLI, run the same install command.
 
@@ -40,6 +41,7 @@ adapt whoami
 ```
 
 If the machine has no browser, use `adapt auth login --no-browser`.
+Open the displayed link on another machine.
 
 ## Profiles
 
@@ -77,36 +79,62 @@ Or run a command:
 adapt sandbox sh --image ubuntu:24.04 -- uname -a
 ```
 
-The CLI creates a sandbox and waits for it to run. It deletes the sandbox and
-its disk when the shell or command ends.
+The CLI creates a sandbox and waits for it to run.
+It deletes the sandbox and its disk when the shell or command ends.
 
-Sandboxes expire after one hour by default.
+Cloud sandboxes expire after one hour by default.
 Use `--ttl SECONDS` to change this time.
 Use `--no-expiry` to disable automatic expiry.
 
 ### Run sandboxes locally
 
-On Apple Silicon macOS or x86_64 Linux with KVM, Adapt downloads and verifies
-its pinned Goblin runtime on first local use:
+Local sandboxes run on these systems:
+
+- Apple Silicon Macs.
+- x86-64 Linux with KVM.
+
+On first use, the CLI downloads and verifies the required local runtime.
+Local commands do not need a Platform login.
+
+Run a command in a temporary local sandbox:
 
 ```sh
 adapt sandbox sh --local --image ubuntu:24.04 -- uname -m
+```
+
+Open a shell in a temporary local sandbox:
+
+```sh
 adapt sandbox sh --local
+```
+
+The CLI starts the local runtime automatically.
+It deletes the temporary sandbox when the shell or command ends.
+
+Create a local sandbox for later commands:
+
+```sh
 adapt --local sandbox create --image ubuntu:24.04 --wait
+```
+
+This sandbox stays available until you stop or delete it.
+Local sandboxes do not expire automatically.
+In the following commands, replace `SANDBOX_ID` with the ID from the response:
+
+```sh
 adapt --local sandbox list
 adapt --local exec SANDBOX_ID -- uname -m
 adapt --local sandbox delete SANDBOX_ID
 ```
 
-Adapt starts and reuses a private local manager without Platform login. The shell
-or command from `sandbox sh` runs in a VM that is deleted when the session ends.
-`sandbox create` keeps the VM for later commands until you stop or delete it. Existing
-commands keep their cloud default; `sandbox sh --cloud` selects it explicitly.
-Use `adapt runtime install` to download ahead of time and `adapt runtime status`
-to inspect the pin and installation path. Local downloads need no login. Developers
-can still supply `ADAPT_LOCAL_RUNTIME=/path/to/goblin-release/bin` or `--runtime-dir`.
-See
-[local sandbox options and limitations](docs/cli-reference.md#local-sandboxes).
+Commands use Adapt Platform by default.
+Use `--cloud` to select Adapt Platform explicitly.
+
+To download the local runtime before use, run `adapt runtime install`.
+To show the required version and installation path, run `adapt runtime status`.
+To use a custom runtime, set `ADAPT_LOCAL_RUNTIME=/path/to/runtime/bin`.
+You can also select this directory with `--runtime-dir`.
+See [local sandbox options and limitations](docs/cli-reference.md#local-sandboxes).
 
 ## Create a sandbox
 
@@ -145,7 +173,8 @@ Delete the sandbox when you no longer need it:
 adapt sandbox delete SANDBOX_ID
 ```
 
-Resource commands accept a full ID or a unique ID prefix.
+Cloud resource commands accept a full ID or a unique ID prefix.
+Local sandbox commands require full IDs.
 
 ## Transfer files
 
@@ -169,8 +198,8 @@ Find tools on your connected Model Context Protocol (MCP) services:
 adapt connections search "files"
 ```
 
-In the following commands, use the `CONNECTION_ID` and `TOOL_NAME` from the search results.
-Show the input schema for a tool from the results:
+In the following commands, replace `CONNECTION_ID` and `TOOL_NAME` with values from the search results.
+Show the tool's input schema:
 
 ```sh
 adapt connections describe CONNECTION_ID TOOL_NAME
@@ -183,7 +212,7 @@ Then call the tool:
 adapt connections call CONNECTION_ID TOOL_NAME --arguments @arguments.json
 ```
 
-## Install the Skill
+## Install the skill
 
 Install the Adapt skill for Codex, Claude Code, Pi, and OpenCode:
 
@@ -191,13 +220,14 @@ Install the Adapt skill for Codex, Claude Code, Pi, and OpenCode:
 adapt skill install
 ```
 
-To install it for one agent, add the agent name. For example:
+To install the skill for one agent, add the agent name.
+For example:
 
 ```sh
 adapt skill install codex
 ```
 
-Show the skill text without installing:
+Show the skill text:
 
 ```sh
 adapt skill show

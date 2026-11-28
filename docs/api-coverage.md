@@ -3,7 +3,9 @@
 Based on the resource OpenAPI document from `../platform` at `f20ded3`, plus its dashboard
 auth integrations. The `query` filter on `GET /v1/sandboxes` and the `name` and `status`
 filters on `GET /v1/images` come from platform `2396647`. `GET /v1/sandboxes/{id}/usage`
-comes from platform `d3b6c77`. The model routes come from platform `8747699`.
+comes from platform `d3b6c77`. `GET /v1/usage` and `GET /v1/usage/summary` come from
+platform `8af1e3e`, and their model usage from `1ae5640`. The model catalog and provider
+routes come from platform `8747699`.
 Every resource operation has a named command, except model provider writes (`POST`, `PUT`,
 and `DELETE` on `/v1/model-gateway/providers`); configure providers in the Platform dashboard.
 `adapt api METHOD PATH` also exposes same-origin JSON requests for less common account operations.
@@ -23,6 +25,8 @@ one from the CLI, or reuse the UUID supplied with `--idempotency-key`.
 | `GET /v1/sandboxes` | `sandbox list [--query TEXT]` |
 | `GET /v1/sandboxes/{id}` | `sandbox get ID` |
 | `GET /v1/sandboxes/{id}/usage` | `sandbox usage ID [--hours 1\|24]` |
+| `GET /v1/usage` | `usage list [--kind sandbox\|model] [--days 7\|30\|90] [--user ID] [--sandbox ID]` |
+| `GET /v1/usage/summary` | `usage summary [--kind sandbox\|model] [--days 7\|30\|90] [--user ID]` |
 | `DELETE /v1/sandboxes/{id}` | `sandbox delete ID` |
 | `POST /v1/sandboxes/{id}/start` | `sandbox start ID` |
 | `POST /v1/sandboxes/{id}/stop` | `sandbox stop ID` |
